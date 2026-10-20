@@ -1,0 +1,31 @@
+# Secrets and local environment
+.env
+.env.local
+.venv/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime data
+session.db
+*.log
+data/uploads/
+data/notices.db
+data/notices.db-*
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+
+.DS_Store
+.pytest_cache/
+*.pyc

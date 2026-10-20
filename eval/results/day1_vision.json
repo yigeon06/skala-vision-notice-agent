@@ -1,0 +1,247 @@
+{
+  "model": "qwen3-vl:4b-instruct",
+  "sample_count": 5,
+  "failure_count": 0,
+  "retry_count": 1,
+  "title_accuracy": 0.8,
+  "event_type_recall": 0.9,
+  "date_recall": 1.0,
+  "status_accuracy": 1.0,
+  "average_latency_seconds": 25.764,
+  "rows": [
+    {
+      "sample": "notice_01_security_training.png",
+      "title_ok": true,
+      "event_type_recall": 1.0,
+      "date_recall": 1.0,
+      "status_ok": true,
+      "validation": {
+        "status": "confirmed",
+        "issues": []
+      },
+      "usage": {
+        "model": "qwen3-vl:4b-instruct",
+        "prompt_tokens": 2130,
+        "completion_tokens": 444,
+        "elapsed_seconds": 13.879,
+        "attempts": 1
+      },
+      "extraction": {
+        "title": "2026년 정보보안 필수교육 안내",
+        "target": [
+          "전 임직원"
+        ],
+        "action_required": [
+          "신청",
+          "교육"
+        ],
+        "application_method": "사내 교육 포털에서 신청",
+        "raw_text": "2026년 정보보안 필수교육 안내\n• 대상: 전 임직원\n• 신청 마감: 2026년 10월 23일까지\n• 교육 일시: 2026년 10월 28일 오후 2시\n• 장소: 본관 3층 교육장\n• 신청 방법: 사내 교육 포털에서 신청\n• 교육 미이수자는 보안 담당자에게 별도 안내됩니다.",
+        "events": [
+          {
+            "event_type": "application_deadline",
+            "date_text": "신청 마감: 2026년 10월 23일까지",
+            "start_at": "2026-10-23T00:00:00+09:00",
+            "end_at": null,
+            "all_day": true,
+            "location": null,
+            "evidence_text": "신청 마감: 2026년 10월 23일까지",
+            "confidence": 0.98
+          },
+          {
+            "event_type": "event",
+            "date_text": "교육 일시: 2026년 10월 28일 오후 2시",
+            "start_at": "2026-10-28T14:00:00+09:00",
+            "end_at": null,
+            "all_day": false,
+            "location": "본관 3층 교육장",
+            "evidence_text": "교육 일시: 2026년 10월 28일 오후 2시",
+            "confidence": 0.98
+          }
+        ],
+        "confidence": 0.98
+      }
+    },
+    {
+      "sample": "notice_02_townhall.png",
+      "title_ok": true,
+      "event_type_recall": 1.0,
+      "date_recall": 1.0,
+      "status_ok": true,
+      "validation": {
+        "status": "confirmed",
+        "issues": []
+      },
+      "usage": {
+        "model": "qwen3-vl:4b-instruct",
+        "prompt_tokens": 2130,
+        "completion_tokens": 418,
+        "elapsed_seconds": 13.014,
+        "attempts": 1
+      },
+      "extraction": {
+        "title": "11월 전사 타운홀 미팅",
+        "target": [
+          "전 임직원"
+        ],
+        "action_required": [
+          "참석이 어려운 경우 부서장에게 사전 공유"
+        ],
+        "application_method": "없음",
+        "raw_text": "11월 전사 타운홀 미팅\n• 대상: 전 임직원\n• 행사 일시: 2026년 11월 5일 오후 3시\n• 장소: 대강당 및 온라인 생중계\n• 해야 할 일: 참석이 어려운 경우 부서장에게 사전 공유\n• 별도의 신청 절차는 없습니다.",
+        "events": [
+          {
+            "event_type": "event",
+            "date_text": "행사 일시: 2026년 11월 5일 오후 3시",
+            "start_at": "2026-11-05T15:00:00+09:00",
+            "end_at": "2026-11-05T15:00:00+09:00",
+            "all_day": false,
+            "location": "대강당 및 온라인 생중계",
+            "evidence_text": "행사 일시: 2026년 11월 5일 오후 3시\n• 장소: 대강당 및 온라인 생중계\n• 해야 할 일: 참석이 어려운 경우 부서장에게 사전 공유\n• 별도의 신청 절차는 없습니다.",
+            "confidence": 0.98
+          }
+        ],
+        "confidence": 0.98
+      }
+    },
+    {
+      "sample": "notice_03_expense_deadline.png",
+      "title_ok": true,
+      "event_type_recall": 1.0,
+      "date_recall": 1.0,
+      "status_ok": true,
+      "validation": {
+        "status": "confirmed",
+        "issues": []
+      },
+      "usage": {
+        "model": "qwen3-vl:4b-instruct",
+        "prompt_tokens": 4299,
+        "completion_tokens": 2339,
+        "elapsed_seconds": 77.281,
+        "attempts": 2
+      },
+      "extraction": {
+        "title": "10월 법인카드 정산 마감 안내",
+        "target": [
+          "법인카드 사용자"
+        ],
+        "action_required": [
+          "제출 마감: 2026년 10월 31일 오후 6시"
+        ],
+        "application_method": "ERP 경비처리 메뉴에서 영수증 첨부",
+        "raw_text": "10월 법인카드 정산 마감 안내\n• 대상: 법인카드 사용자\n• 제출 마감: 2026년 10월 31일 오후 6시\n• 제출 방법: ERP 경비처리 메뉴에서 영수증 첨부\n• 마감 이후 제출 건은 다음 달 비용으로 처리됩니다.",
+        "events": [
+          {
+            "event_type": "submission_deadline",
+            "date_text": "제출 마감: 2026년 10월 31일 오후 6시",
+            "start_at": "2026-10-31T18:00:00+09:00",
+            "end_at": "2026-10-31T18:00:00+09:00",
+            "all_day": false,
+            "location": null,
+            "evidence_text": "제출 마감: 2026년 10월 31일 오후 6시",
+            "confidence": 0.98
+          }
+        ],
+        "confidence": 0.98
+      }
+    },
+    {
+      "sample": "notice_04_health_check.png",
+      "title_ok": true,
+      "event_type_recall": 0.5,
+      "date_recall": 1.0,
+      "status_ok": true,
+      "validation": {
+        "status": "confirmed",
+        "issues": []
+      },
+      "usage": {
+        "model": "qwen3-vl:4b-instruct",
+        "prompt_tokens": 2130,
+        "completion_tokens": 472,
+        "elapsed_seconds": 15.199,
+        "attempts": 1
+      },
+      "extraction": {
+        "title": "임직원 건강검진 예약 안내",
+        "target": [
+          "2026년 건강검진 대상자"
+        ],
+        "action_required": [
+          "예약 마감: 2026년 11월 7일까지",
+          "검진 일시: 2026년 11월 10일 오전 9시"
+        ],
+        "application_method": "복지 포털에서 검진 시간을 선택하세요.",
+        "raw_text": "임직원 건강검진 예약 안내\n• 대상: 2026년 건강검진 대상자\n• 예약 마감: 2026년 11월 7일까지\n• 검진 일시: 2026년 11월 10일 오전 9시\n• 장소: 새봄 건강검진센터\n• 신청 방법: 복지 포털에서 검진 시간을 선택하세요.",
+        "events": [
+          {
+            "event_type": "event",
+            "date_text": "예약 마감: 2026년 11월 7일까지",
+            "start_at": "2026-11-07T00:00:00+09:00",
+            "end_at": null,
+            "all_day": true,
+            "location": null,
+            "evidence_text": "예약 마감: 2026년 11월 7일까지",
+            "confidence": 0.98
+          },
+          {
+            "event_type": "event",
+            "date_text": "검진 일시: 2026년 11월 10일 오전 9시",
+            "start_at": "2026-11-10T09:00:00+09:00",
+            "end_at": null,
+            "all_day": false,
+            "location": null,
+            "evidence_text": "검진 일시: 2026년 11월 10일 오전 9시",
+            "confidence": 0.98
+          }
+        ],
+        "confidence": 0.98
+      }
+    },
+    {
+      "sample": "notice_05_ambiguous_workshop.png",
+      "title_ok": false,
+      "event_type_recall": 1.0,
+      "date_recall": 1.0,
+      "status_ok": true,
+      "validation": {
+        "status": "needs_review",
+        "issues": [
+          "일정 1의 날짜를 확정할 수 없습니다."
+        ]
+      },
+      "usage": {
+        "model": "qwen3-vl:4b-instruct",
+        "prompt_tokens": 2130,
+        "completion_tokens": 278,
+        "elapsed_seconds": 9.447,
+        "attempts": 1
+      },
+      "extraction": {
+        "title": "개발본부 팀워크 위크숍 사전 안내",
+        "target": [
+          "개발본부 구성원"
+        ],
+        "action_required": [
+          "11월 중 진행 예정"
+        ],
+        "application_method": "참석이 어려운 구성원은 팀장에게 알려주세요.",
+        "raw_text": "개발본부 팀워크 위크숍 사전 안내\n• 대상: 개발본부 구성원\n• 일정: 11월 중 진행 예정\n• 장소와 정확한 시간은 추후 공지합니다.\n• 참석이 어려운 구성원은 팀장에게 알려주세요.",
+        "events": [
+          {
+            "event_type": "event",
+            "date_text": "11월 중",
+            "start_at": null,
+            "end_at": null,
+            "all_day": false,
+            "location": "추후 공지",
+            "evidence_text": "• 일정: 11월 중 진행 예정\n• 장소와 정확한 시간은 추후 공지합니다.",
+            "confidence": 0.95
+          }
+        ],
+        "confidence": 0.95
+      }
+    }
+  ]
+}
