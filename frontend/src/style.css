@@ -82,6 +82,14 @@ dd { margin: 0; font-size: 13px; font-weight: 600; }
 .position-card ul { margin: 6px 0 0; padding-left: 18px; color: #5f6b7e; font-size: 11px; line-height: 1.6; }
 .text-detail { margin-top: 12px; }
 .raw-detail summary { color: #7a8597; }
+.additional-list { display: grid; gap: 10px; margin: 20px 0; }
+.additional-list > h3 { margin: 0; font-size: 15px; }
+.additional-card { padding: 14px; border: 1px solid #eadfbf; border-radius: 10px; background: #fffaf0; }
+.additional-heading { display: flex; justify-content: space-between; align-items: center; color: #8a6418; font-size: 11px; font-weight: 700; }
+.additional-card h4 { margin: 8px 0; font-size: 14px; }
+.additional-card ul { margin: 6px 0 10px; padding-left: 18px; color: #5f6b7e; font-size: 11px; line-height: 1.6; }
+.additional-card details { border-top-color: #eadfbf; }
+.review-badge { padding: 3px 7px; border-radius: 99px; color: #9a6410; background: #ffedbc; }
 
 .archive-panel { position: sticky; top: 20px; }
 .refresh { padding: 6px 10px; color: #2864d7; border: 1px solid #d8e2f2; border-radius: 7px; background: white; font-size: 11px; }

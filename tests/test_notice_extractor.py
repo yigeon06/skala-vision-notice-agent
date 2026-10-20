@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 
-from agent.notice_extractor import NoticeExtractor
-from agent.schemas import StructuredNoticeExtraction
+from agent.notice_extractor import NoticeExtractor, _dedupe_additional_information
+from agent.schemas import AdditionalInformation, StructuredNoticeExtraction
 from agent.vision_llm import _segment_bounds, merge_ocr_texts, truncate_repeated_tail
 
 
@@ -55,6 +55,24 @@ def test_two_repeated_lines_are_preserved() -> None:
     assert metadata["truncated_line_count"] == 0
 
 
+def test_additional_information_items_are_deduplicated() -> None:
+    sections = [
+        AdditionalInformation(
+            category="preferred_certification",
+            title="우대 자격증",
+            items=["정보처리기사", " 정보 처리 기사 ", "CISSP"],
+            evidence_text="우대 자격증: 정보처리기사, CISSP",
+            confidence=0.8,
+            needs_review=True,
+        )
+    ]
+
+    result = _dedupe_additional_information(sections)
+
+    assert result[0].items == ["정보처리기사", "CISSP"]
+    assert result[0].evidence_text == sections[0].evidence_text
+
+
 def test_hybrid_extractor_connects_ocr_and_structured_steps(tmp_path) -> None:
     calls = []
 
@@ -77,6 +95,7 @@ def test_hybrid_extractor_connects_ocr_and_structured_steps(tmp_path) -> None:
                 application_method=None,
                 cleaned_text="신청 마감: 10월 25일",
                 recruitment_positions=[],
+                additional_information=[],
                 events=[],
                 confidence=0.9,
             ), {

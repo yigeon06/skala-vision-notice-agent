@@ -124,6 +124,18 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
+const additionalCategoryLabels = {
+  preferred_certification: '우대 자격증',
+  required_document: '제출서류',
+  disqualification: '불이익 조건',
+  notice: '유의사항',
+  other: '기타',
+}
+
+function additionalCategoryLabel(category) {
+  return additionalCategoryLabels[category] || '기타'
+}
+
 onMounted(loadNotices)
 onBeforeUnmount(() => {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
@@ -215,6 +227,19 @@ onBeforeUnmount(() => {
           </article>
         </section>
 
+        <section v-if="extraction.additional_information?.length" class="additional-list">
+          <h3>기타 중요 정보</h3>
+          <article v-for="(information, index) in extraction.additional_information" :key="`${information.category}-${index}`" class="additional-card">
+            <div class="additional-heading">
+              <span>{{ additionalCategoryLabel(information.category) }}</span>
+              <span v-if="information.needs_review" class="review-badge">확인 필요</span>
+            </div>
+            <h4>{{ information.title }}</h4>
+            <ul><li v-for="item in information.items" :key="item">{{ item }}</li></ul>
+            <details><summary>근거 OCR</summary><pre>{{ information.evidence_text }}</pre></details>
+          </article>
+        </section>
+
         <details class="text-detail">
           <summary>정리된 전체 텍스트 보기</summary>
           <pre>{{ extraction.cleaned_text }}</pre>
@@ -292,6 +317,19 @@ onBeforeUnmount(() => {
             <ul><li v-for="item in position.responsibilities" :key="item">{{ item }}</li></ul>
             <strong>우대사항</strong>
             <ul><li v-for="item in position.preferred_qualifications" :key="item">{{ item }}</li></ul>
+          </article>
+        </section>
+
+        <section v-if="selectedNotice.additional_information?.length" class="additional-list">
+          <h3>기타 중요 정보</h3>
+          <article v-for="(information, index) in selectedNotice.additional_information" :key="`${information.category}-${index}`" class="additional-card">
+            <div class="additional-heading">
+              <span>{{ additionalCategoryLabel(information.category) }}</span>
+              <span v-if="information.needs_review" class="review-badge">확인 필요</span>
+            </div>
+            <h4>{{ information.title }}</h4>
+            <ul><li v-for="item in information.items" :key="item">{{ item }}</li></ul>
+            <details><summary>근거 OCR</summary><pre>{{ information.evidence_text }}</pre></details>
           </article>
         </section>
 

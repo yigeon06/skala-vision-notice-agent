@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from agent.schemas import NoticeEventExtraction, NoticeExtraction, RecruitmentPosition
+from agent.schemas import (
+    AdditionalInformation,
+    NoticeEventExtraction,
+    NoticeExtraction,
+    RecruitmentPosition,
+)
 from notice.date_normalizer import normalize_extraction
 from notice.repository import NoticeRepository
 from notice.service import validate_extraction
@@ -22,6 +27,16 @@ def _sample_extraction() -> NoticeExtraction:
                 name="Security",
                 responsibilities=["정보보안 시스템 운영"],
                 preferred_qualifications=["정보보안 자격 보유"],
+            )
+        ],
+        additional_information=[
+            AdditionalInformation(
+                category="required_document",
+                title="제출서류",
+                items=["졸업증명서"],
+                evidence_text="제출서류 - 졸업증명서",
+                confidence=0.9,
+                needs_review=False,
             )
         ],
         confidence=0.9,
@@ -115,6 +130,10 @@ def test_repository_is_idempotent(tmp_path: Path) -> None:
     positions = repository.get_notice(first_id)["recruitment_positions"]
     assert positions[0]["name"] == "Security"
     assert positions[0]["responsibilities"] == ["정보보안 시스템 운영"]
+    additional = repository.get_notice(first_id)["additional_information"]
+    assert additional[0]["category"] == "required_document"
+    assert additional[0]["items"] == ["졸업증명서"]
+    assert additional[0]["needs_review"] is False
     notices = repository.list_notices()
     assert len(notices) == 1
     assert notices[0]["title"] == "정보보안 교육"

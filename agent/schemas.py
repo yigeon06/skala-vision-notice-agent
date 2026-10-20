@@ -46,6 +46,26 @@ class RecruitmentPosition(BaseModel):
     preferred_qualifications: list[str] = Field(description="해당 분야의 우대사항")
 
 
+AdditionalInformationCategory = Literal[
+    "preferred_certification",
+    "required_document",
+    "disqualification",
+    "notice",
+    "other",
+]
+
+
+class AdditionalInformation(BaseModel):
+    category: AdditionalInformationCategory
+    title: str = Field(description="원문에 표시된 정보 영역의 제목")
+    items: list[str] = Field(description="중복을 제거한 중요 정보 항목")
+    evidence_text: str = Field(description="판단 근거가 된 OCR 원문")
+    confidence: float = Field(ge=0.0, le=1.0)
+    needs_review: bool = Field(
+        description="OCR 오류나 해석 불확실성으로 사용자 확인이 필요한지 여부"
+    )
+
+
 class StructuredNoticeExtraction(BaseModel):
     title: str = Field(description="공지 상단의 제목을 그대로 복사")
     target: list[str] = Field(description="공지 대상")
@@ -56,6 +76,9 @@ class StructuredNoticeExtraction(BaseModel):
     )
     recruitment_positions: list[RecruitmentPosition] = Field(
         description="모집분야별 수행업무와 우대사항. 채용 공지가 아니면 빈 배열"
+    )
+    additional_information: list[AdditionalInformation] = Field(
+        description="기존 필드에 속하지 않는 자격증, 서류, 불이익, 유의사항 등의 중요 정보"
     )
     events: list[NoticeEventExtraction] = Field(
         description="모든 마감과 행사 일정. 날짜가 모호해도 event를 만들고 start_at은 null",

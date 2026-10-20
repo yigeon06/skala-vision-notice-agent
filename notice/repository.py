@@ -80,12 +80,30 @@ class NoticeRepository:
                     FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS notice_additional_information (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notice_id INTEGER NOT NULL,
+                    information_order INTEGER NOT NULL,
+                    category TEXT NOT NULL CHECK(category IN (
+                        'preferred_certification', 'required_document',
+                        'disqualification', 'notice', 'other'
+                    )),
+                    title TEXT NOT NULL,
+                    items_json TEXT NOT NULL,
+                    evidence_text TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    needs_review INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_notice_events_start_at
                 ON notice_events(start_at);
                 CREATE INDEX IF NOT EXISTS idx_notice_events_type
                 ON notice_events(event_type);
                 CREATE INDEX IF NOT EXISTS idx_recruitment_positions_notice
                 ON notice_recruitment_positions(notice_id, position_order);
+                CREATE INDEX IF NOT EXISTS idx_additional_information_notice
+                ON notice_additional_information(notice_id, information_order);
                 """
             )
 
@@ -166,6 +184,27 @@ class NoticeRepository:
                         json.dumps(position.preferred_qualifications, ensure_ascii=False),
                     ),
                 )
+            for information_order, information in enumerate(
+                extraction.additional_information
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO notice_additional_information (
+                        notice_id, information_order, category, title, items_json,
+                        evidence_text, confidence, needs_review
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        notice_id,
+                        information_order,
+                        information.category,
+                        information.title,
+                        json.dumps(information.items, ensure_ascii=False),
+                        information.evidence_text,
+                        information.confidence,
+                        int(information.needs_review),
+                    ),
+                )
             return notice_id, True
 
     def get_notice(self, notice_id: int) -> dict | None:
@@ -188,6 +227,16 @@ class NoticeRepository:
                 """,
                 (notice_id,),
             ).fetchall()
+            additional_information = connection.execute(
+                """
+                SELECT category, title, items_json, evidence_text, confidence,
+                       needs_review
+                FROM notice_additional_information
+                WHERE notice_id = ?
+                ORDER BY information_order, id
+                """,
+                (notice_id,),
+            ).fetchall()
         result = dict(notice)
         result["target"] = json.loads(result.pop("target_json"))
         result["action_required"] = json.loads(result.pop("action_required_json"))
@@ -201,6 +250,17 @@ class NoticeRepository:
                 ),
             }
             for row in positions
+        ]
+        result["additional_information"] = [
+            {
+                "category": row["category"],
+                "title": row["title"],
+                "items": json.loads(row["items_json"]),
+                "evidence_text": row["evidence_text"],
+                "confidence": row["confidence"],
+                "needs_review": bool(row["needs_review"]),
+            }
+            for row in additional_information
         ]
         return result
 
