@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agent.notice_extractor import NoticeExtractor
+from agent.schemas import NoticeExtraction
 from agent.structured_llm import OpenAIStructuredLLM, StructuredOutputError
 from agent.vision_llm import OCRError, OllamaVisionLLM
 from notice.date_normalizer import normalize_extraction
@@ -37,6 +38,7 @@ class ExtractNoticeRequest(BaseModel):
 
 class RegisterNoticeRequest(ExtractNoticeRequest):
     request_id: str
+    extraction: NoticeExtraction
 
 
 @asynccontextmanager
@@ -129,9 +131,13 @@ async def extract_notice(req: ExtractNoticeRequest):
 
 @app.post("/notices/register")
 async def register_notice(req: RegisterNoticeRequest):
-    image_path, extraction, validation, usage = await _extract_notice(
-        req.image_id, req.reference_date
-    )
+    try:
+        image_path = app.state.image_store.resolve(req.image_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="업로드 이미지를 찾을 수 없습니다.") from exc
+
+    extraction = req.extraction
+    validation = validate_extraction(extraction)
     notice_id, created = app.state.notice_repository.save_notice(
         request_id=req.request_id,
         extraction=extraction,
@@ -145,7 +151,11 @@ async def register_notice(req: RegisterNoticeRequest):
         "status": validation.status,
         "issues": validation.issues,
         "extraction": extraction.model_dump(mode="json"),
-        "usage": usage,
+        "usage": {
+            "models": {},
+            "elapsed_seconds": 0,
+            "source": "provided_extraction",
+        },
     }
 
 

@@ -7,7 +7,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
-button, input { font: inherit; }
+button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 
 .topbar {
@@ -91,6 +91,25 @@ dd { margin: 0; font-size: 13px; font-weight: 600; }
 .additional-card details { border-top-color: #eadfbf; }
 .review-badge { padding: 3px 7px; border-radius: 99px; color: #9a6410; background: #ffedbc; }
 
+.edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 12px 0 18px; }
+.edit-button, .secondary-button, .editable-section-heading button { border: 0; border-radius: 8px; padding: 9px 13px; cursor: pointer; font-weight: 700; }
+.edit-button, .editable-section-heading button { color: #fff; background: #234a9f; }
+.secondary-button { color: #32415e; background: #e9edf5; }
+.edit-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wide-field { grid-column: 1 / -1; }
+.edit-form label, .edit-card label, .cleaned-text-editor { display: grid; gap: 6px; color: #34425d; font-size: 13px; font-weight: 700; }
+.edit-form input, .edit-form textarea, .edit-card input, .edit-card textarea, .edit-card select, .cleaned-text-editor textarea { box-sizing: border-box; width: 100%; border: 1px solid #cbd5e6; border-radius: 8px; padding: 9px 10px; color: #1d2940; background: #fff; }
+.edit-form textarea, .edit-card textarea { min-height: 90px; resize: vertical; }
+.editable-section { margin-top: 20px; }
+.editable-section-heading, .edit-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.edit-card { display: grid; gap: 12px; margin-top: 10px; padding: 14px; border: 1px solid #d9e0ed; border-radius: 10px; background: #f8faff; }
+.edit-card-heading .remove-button { border: 0; color: #a52b37; background: transparent; cursor: pointer; font-weight: 700; }
+.two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.edit-card .check-field { display: flex; align-items: center; gap: 7px; }
+.edit-card .check-field input { width: auto; }
+.cleaned-text-editor { margin-top: 20px; }
+.cleaned-text-editor textarea { min-height: 220px; resize: vertical; font-family: inherit; font-weight: 400; line-height: 1.6; }
+
 .archive-panel { position: sticky; top: 20px; }
 .refresh { padding: 6px 10px; color: #2864d7; border: 1px solid #d8e2f2; border-radius: 7px; background: white; font-size: 11px; }
 .empty, .empty-state { color: #8792a4; text-align: center; font-size: 13px; }
@@ -130,4 +149,6 @@ pre { max-height: 240px; overflow: auto; white-space: pre-wrap; color: #5f6b7e; 
   .dropzone { min-height: 250px; }
   .summary-grid { grid-template-columns: 1fr; }
   .summary-grid .wide { grid-column: auto; }
+  .edit-form, .two-columns { grid-template-columns: 1fr; }
+  .wide-field { grid-column: auto; }
 }
