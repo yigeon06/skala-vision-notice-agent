@@ -11,6 +11,7 @@ __pycache__/
 htmlcov/
 
 # Runtime data
+data/samples/
 session.db
 *.log
 data/uploads/
