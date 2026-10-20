@@ -204,6 +204,26 @@ onBeforeUnmount(() => {
           <p v-if="!extraction.events.length" class="empty">추출된 일정이 없습니다.</p>
         </div>
 
+        <section v-if="extraction.recruitment_positions?.length" class="position-list">
+          <h3>모집 분야</h3>
+          <article v-for="position in extraction.recruitment_positions" :key="position.name" class="position-card">
+            <h4>{{ position.name }}</h4>
+            <strong>수행업무</strong>
+            <ul><li v-for="item in position.responsibilities" :key="item">{{ item }}</li></ul>
+            <strong>우대사항</strong>
+            <ul><li v-for="item in position.preferred_qualifications" :key="item">{{ item }}</li></ul>
+          </article>
+        </section>
+
+        <details class="text-detail">
+          <summary>정리된 전체 텍스트 보기</summary>
+          <pre>{{ extraction.cleaned_text }}</pre>
+        </details>
+        <details class="text-detail raw-detail">
+          <summary>원본 OCR 보기</summary>
+          <pre>{{ extraction.raw_text }}</pre>
+        </details>
+
         <ul v-if="validation?.issues?.length" class="issue-list">
           <li v-for="issue in validation.issues" :key="issue">{{ issue }}</li>
         </ul>
@@ -264,8 +284,23 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <details>
-          <summary>추출 원문 보기</summary>
+        <section v-if="selectedNotice.recruitment_positions?.length" class="position-list">
+          <h3>모집 분야</h3>
+          <article v-for="position in selectedNotice.recruitment_positions" :key="position.name" class="position-card">
+            <h4>{{ position.name }}</h4>
+            <strong>수행업무</strong>
+            <ul><li v-for="item in position.responsibilities" :key="item">{{ item }}</li></ul>
+            <strong>우대사항</strong>
+            <ul><li v-for="item in position.preferred_qualifications" :key="item">{{ item }}</li></ul>
+          </article>
+        </section>
+
+        <details class="text-detail" open>
+          <summary>정리된 전체 텍스트</summary>
+          <pre>{{ selectedNotice.cleaned_text }}</pre>
+        </details>
+        <details class="text-detail raw-detail">
+          <summary>원본 OCR 보기</summary>
           <pre>{{ selectedNotice.raw_text }}</pre>
         </details>
       </article>

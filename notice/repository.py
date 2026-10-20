@@ -35,6 +35,7 @@ class NoticeRepository:
                     request_id TEXT NOT NULL UNIQUE,
                     title TEXT NOT NULL,
                     raw_text TEXT NOT NULL,
+                    cleaned_text TEXT NOT NULL,
                     target_json TEXT NOT NULL,
                     action_required_json TEXT NOT NULL,
                     application_method TEXT,
@@ -69,10 +70,22 @@ class NoticeRepository:
                     FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS notice_recruitment_positions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notice_id INTEGER NOT NULL,
+                    position_order INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    responsibilities_json TEXT NOT NULL,
+                    preferred_qualifications_json TEXT NOT NULL,
+                    FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_notice_events_start_at
                 ON notice_events(start_at);
                 CREATE INDEX IF NOT EXISTS idx_notice_events_type
                 ON notice_events(event_type);
+                CREATE INDEX IF NOT EXISTS idx_recruitment_positions_notice
+                ON notice_recruitment_positions(notice_id, position_order);
                 """
             )
 
@@ -94,15 +107,16 @@ class NoticeRepository:
             cursor = connection.execute(
                 """
                 INSERT INTO notices (
-                    request_id, title, raw_text, target_json, action_required_json,
+                    request_id, title, raw_text, cleaned_text, target_json, action_required_json,
                     application_method, source_image_path, source_image_hash,
                     status, confidence, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request_id,
                     extraction.title,
                     extraction.raw_text,
+                    extraction.cleaned_text,
                     json.dumps(extraction.target, ensure_ascii=False),
                     json.dumps(extraction.action_required, ensure_ascii=False),
                     extraction.application_method,
@@ -136,6 +150,22 @@ class NoticeRepository:
                         event.confidence,
                     ),
                 )
+            for position_order, position in enumerate(extraction.recruitment_positions):
+                connection.execute(
+                    """
+                    INSERT INTO notice_recruitment_positions (
+                        notice_id, position_order, name, responsibilities_json,
+                        preferred_qualifications_json
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        notice_id,
+                        position_order,
+                        position.name,
+                        json.dumps(position.responsibilities, ensure_ascii=False),
+                        json.dumps(position.preferred_qualifications, ensure_ascii=False),
+                    ),
+                )
             return notice_id, True
 
     def get_notice(self, notice_id: int) -> dict | None:
@@ -149,10 +179,29 @@ class NoticeRepository:
                 "SELECT * FROM notice_events WHERE notice_id = ? ORDER BY start_at, id",
                 (notice_id,),
             ).fetchall()
+            positions = connection.execute(
+                """
+                SELECT name, responsibilities_json, preferred_qualifications_json
+                FROM notice_recruitment_positions
+                WHERE notice_id = ?
+                ORDER BY position_order, id
+                """,
+                (notice_id,),
+            ).fetchall()
         result = dict(notice)
         result["target"] = json.loads(result.pop("target_json"))
         result["action_required"] = json.loads(result.pop("action_required_json"))
         result["events"] = [dict(row) for row in events]
+        result["recruitment_positions"] = [
+            {
+                "name": row["name"],
+                "responsibilities": json.loads(row["responsibilities_json"]),
+                "preferred_qualifications": json.loads(
+                    row["preferred_qualifications_json"]
+                ),
+            }
+            for row in positions
+        ]
         return result
 
     def list_notices(self) -> list[dict]:

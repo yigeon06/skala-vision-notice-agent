@@ -19,7 +19,12 @@ def validate_extraction(extraction: NoticeExtraction) -> ExtractionValidation:
         if not event.evidence_text.strip():
             issues.append(f"일정 {index}의 근거 문장이 없습니다.")
         if event.start_at is None:
-            issues.append(f"일정 {index}의 날짜를 확정할 수 없습니다.")
+            if not any(character.isdigit() for character in event.evidence_text):
+                issues.append(
+                    f"일정 {index}에 확정 가능한 날짜 표현이 없습니다."
+                )
+            else:
+                issues.append(f"일정 {index}의 날짜를 확정할 수 없습니다.")
     return ExtractionValidation(
         status="needs_review" if issues else "confirmed",
         issues=issues,

@@ -24,6 +24,8 @@ def test_upload_register_list_and_detail(tmp_path, monkeypatch) -> None:
         "action_required": ["신청"],
         "application_method": "사내 포털",
         "raw_text": "신청 마감: 2026년 10월 25일",
+        "cleaned_text": "신청 마감: 2026년 10월 25일",
+        "recruitment_positions": [],
         "events": [{
             "event_type": "application_deadline",
             "date_text": "2026년 10월 25일",

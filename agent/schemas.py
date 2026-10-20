@@ -40,18 +40,31 @@ class NoticeEventExtraction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
-class NoticeExtraction(BaseModel):
+class RecruitmentPosition(BaseModel):
+    name: str = Field(description="이미지에 표시된 모집 분야명")
+    responsibilities: list[str] = Field(description="해당 분야의 수행업무")
+    preferred_qualifications: list[str] = Field(description="해당 분야의 우대사항")
+
+
+class StructuredNoticeExtraction(BaseModel):
     title: str = Field(description="공지 상단의 제목을 그대로 복사")
     target: list[str] = Field(description="공지 대상")
     action_required: list[str] = Field(description="대상이 해야 하는 일")
     application_method: str | None
-    raw_text: str = Field(
-        description="제목과 본문을 포함해 이미지에서 읽은 전체 원문"
+    cleaned_text: str = Field(
+        description="OCR 중복과 명백한 오탈자를 정리한 전체 공지문"
+    )
+    recruitment_positions: list[RecruitmentPosition] = Field(
+        description="모집분야별 수행업무와 우대사항. 채용 공지가 아니면 빈 배열"
     )
     events: list[NoticeEventExtraction] = Field(
         description="모든 마감과 행사 일정. 날짜가 모호해도 event를 만들고 start_at은 null",
     )
     confidence: float = Field(ge=0.0, le=1.0)
+
+
+class NoticeExtraction(StructuredNoticeExtraction):
+    raw_text: str = Field(description="Ollama가 인식한 병합 전후의 원본 OCR 증거")
 
 
 class ExtractionValidation(BaseModel):

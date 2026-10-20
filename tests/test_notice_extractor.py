@@ -4,7 +4,55 @@ import asyncio
 from datetime import date
 
 from agent.notice_extractor import NoticeExtractor
-from agent.schemas import NoticeExtraction
+from agent.schemas import StructuredNoticeExtraction
+from agent.vision_llm import _segment_bounds, merge_ocr_texts, truncate_repeated_tail
+
+
+def test_segment_bounds_cover_image_with_overlap() -> None:
+    bounds = _segment_bounds(3028, count=3, overlap_ratio=0.15)
+
+    assert len(bounds) == 3
+    assert bounds[0][0] == 0
+    assert bounds[-1][1] == 3028
+    assert bounds[0][1] > bounds[1][0]
+    assert bounds[1][1] > bounds[2][0]
+
+
+def test_merge_ocr_texts_removes_boundary_duplicates() -> None:
+    merged = merge_ocr_texts([
+        "모집분야\nSW Engineering\n수행업무",
+        "SW Engineering\n수행업무\nAI 기반 서비스 개발\n우대사항",
+        "우대사항\nPython 경험\n모집기간",
+    ])
+
+    assert merged == (
+        "모집분야\nSW Engineering\n수행업무\nAI 기반 서비스 개발\n"
+        "우대사항\nPython 경험\n모집기간"
+    )
+
+
+def test_repeated_tail_is_truncated_after_three_equal_lines() -> None:
+    text, metadata = truncate_repeated_tail(
+        "채용 안내\n개인정보 처리방침\n주소\n개인정보처리방침\n"
+        "개인정보 처리방침\n개인정보처리방침\n개인정보처리방침"
+    )
+
+    assert text == "채용 안내\n개인정보 처리방침\n주소"
+    assert metadata == {
+        "repetition_truncated": True,
+        "truncated_line_count": 4,
+        "repeated_line": "개인정보처리방침",
+    }
+
+
+def test_two_repeated_lines_are_preserved() -> None:
+    original = "지원자격\n지원자격\n채용절차"
+
+    text, metadata = truncate_repeated_tail(original)
+
+    assert text == original
+    assert metadata["repetition_truncated"] is False
+    assert metadata["truncated_line_count"] == 0
 
 
 def test_hybrid_extractor_connects_ocr_and_structured_steps(tmp_path) -> None:
@@ -22,12 +70,13 @@ def test_hybrid_extractor_connects_ocr_and_structured_steps(tmp_path) -> None:
     class FakeStructured:
         async def extract_notice(self, text, reference_date):
             calls.append(("structured", text, reference_date))
-            return NoticeExtraction(
+            return StructuredNoticeExtraction(
                 title="공지",
                 target=[],
                 action_required=[],
                 application_method=None,
-                raw_text=text,
+                cleaned_text="신청 마감: 10월 25일",
+                recruitment_positions=[],
                 events=[],
                 confidence=0.9,
             ), {
@@ -43,6 +92,7 @@ def test_hybrid_extractor_connects_ocr_and_structured_steps(tmp_path) -> None:
     )
 
     assert extraction.raw_text == "신청 마감: 10월 25일"
+    assert extraction.cleaned_text == "신청 마감: 10월 25일"
     assert calls == [
         ("ocr", image_path),
         ("structured", "신청 마감: 10월 25일", date(2026, 10, 20)),
