@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 EventType = Literal[
@@ -26,18 +27,25 @@ class NoticeEventExtraction(BaseModel):
     date_text: str = Field(
         description="이미지에 적힌 날짜 표현을 생략 없이 그대로 복사"
     )
-    start_at: str | None = Field(
-        description="확정 가능한 경우에만 Asia/Seoul ISO 8601 시각"
+    start_date: str | None = Field(
+        description="확정 가능한 경우에만 YYYY-MM-DD 형식의 시작 날짜"
     )
-    end_at: str | None = Field(
-        description="종료 시각이 명시된 경우에만 ISO 8601 시각"
+    end_date: str | None = Field(
+        description="종료 날짜가 명시된 경우에만 YYYY-MM-DD 형식"
     )
-    all_day: bool
     location: str | None
     evidence_text: str = Field(
         description="일정을 판단한 이미지의 원문 한 줄을 그대로 복사"
     )
-    confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def valid_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) != 10 or date.fromisoformat(value).isoformat() != value:
+            raise ValueError("날짜는 YYYY-MM-DD 형식이어야 합니다.")
+        return value
 
 
 class RecruitmentPosition(BaseModel):
@@ -81,7 +89,7 @@ class StructuredNoticeExtraction(BaseModel):
         description="기존 필드에 속하지 않는 자격증, 서류, 불이익, 유의사항 등의 중요 정보"
     )
     events: list[NoticeEventExtraction] = Field(
-        description="모든 마감과 행사 일정. 날짜가 모호해도 event를 만들고 start_at은 null",
+        description="모든 마감과 행사 일정. 날짜가 모호해도 event를 만들고 start_date는 null",
     )
     confidence: float = Field(ge=0.0, le=1.0)
 

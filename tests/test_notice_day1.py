@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from agent.schemas import (
     AdditionalInformation,
     NoticeEventExtraction,
@@ -44,12 +47,10 @@ def _sample_extraction() -> NoticeExtraction:
             NoticeEventExtraction(
                 event_type="application_deadline",
                 date_text="2026년 10월 23일까지",
-                start_at=None,
-                end_at=None,
-                all_day=True,
+                start_date=None,
+                end_date=None,
                 location=None,
                 evidence_text="신청 마감은 2026년 10월 23일까지입니다.",
-                confidence=0.9,
             )
         ],
     )
@@ -57,7 +58,7 @@ def _sample_extraction() -> NoticeExtraction:
 
 def test_normalize_and_validate_notice() -> None:
     extraction = normalize_extraction(_sample_extraction(), date(2026, 10, 20))
-    assert extraction.events[0].start_at == "2026-10-23T00:00:00+09:00"
+    assert extraction.events[0].start_date == "2026-10-23"
     assert validate_extraction(extraction).status == "confirmed"
 
 
@@ -72,8 +73,8 @@ def test_normalize_korean_date_range() -> None:
 
     normalized = normalize_extraction(extraction, date(2026, 10, 20))
 
-    assert normalized.events[0].start_at == "2026-10-07T00:00:00+09:00"
-    assert normalized.events[0].end_at == "2026-10-21T23:59:59+09:00"
+    assert normalized.events[0].start_date == "2026-10-07"
+    assert normalized.events[0].end_date == "2026-10-21"
 
 
 def test_normalize_dot_date_range_with_omitted_end_year() -> None:
@@ -87,8 +88,8 @@ def test_normalize_dot_date_range_with_omitted_end_year() -> None:
 
     normalized = normalize_extraction(extraction, date(2026, 10, 20))
 
-    assert normalized.events[0].start_at == "2026-10-09T10:00:00+09:00"
-    assert normalized.events[0].end_at == "2026-10-22T16:00:00+09:00"
+    assert normalized.events[0].start_date == "2026-10-09"
+    assert normalized.events[0].end_date == "2026-10-22"
 
 
 def test_normalize_range_with_omitted_end_month() -> None:
@@ -102,8 +103,28 @@ def test_normalize_range_with_omitted_end_month() -> None:
 
     normalized = normalize_extraction(extraction, date(2026, 10, 20))
 
-    assert normalized.events[0].start_at == "2026-10-07T00:00:00+09:00"
-    assert normalized.events[0].end_at == "2026-10-21T23:59:59+09:00"
+    assert normalized.events[0].start_date == "2026-10-07"
+    assert normalized.events[0].end_date == "2026-10-21"
+
+
+def test_date_only_event_preserves_time_in_source_text() -> None:
+    extraction = _sample_extraction()
+    extraction.events[0] = extraction.events[0].model_copy(update={
+        "date_text": "2026년 10월 23일 17:00 마감",
+        "evidence_text": "신청 마감: 2026년 10월 23일 17:00",
+    })
+    normalized = normalize_extraction(extraction, date(2026, 10, 20))
+    event = normalized.events[0]
+    assert event.start_date == "2026-10-23"
+    assert event.end_date is None
+    assert "17:00" in event.date_text
+    assert set(event.model_dump()) == {
+        "event_type", "date_text", "start_date", "end_date", "location", "evidence_text",
+    }
+    with pytest.raises(ValidationError):
+        NoticeEventExtraction.model_validate({
+            **event.model_dump(), "start_date": "2026-10-23T17:00:00+09:00",
+        })
 
 
 def test_repository_is_idempotent(tmp_path: Path) -> None:

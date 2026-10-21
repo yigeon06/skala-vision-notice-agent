@@ -14,6 +14,7 @@ from agent.planner import AgentRoute, OpenAIPlanner
 from agent.rag import NoticeRAGService
 from agent.search import (
     OpenAINoticeSearchParser,
+    SearchMode,
     format_search_response,
     resolve_search_filters,
 )
@@ -26,6 +27,7 @@ SEOUL = ZoneInfo("Asia/Seoul")
 class AgentState(TypedDict, total=False):
     messages: list[dict[str, str]]
     image_id: str | None
+    search_mode: SearchMode
     reference_date: date | None
     route: AgentRoute
     route_reason: str
@@ -49,6 +51,12 @@ def create_agent_graph(
     rag_service: NoticeRAGService | None = None,
 ):
     async def planning_node(state: AgentState) -> dict[str, Any]:
+        mode = state.get("search_mode", "auto")
+        if not state.get("image_id") and mode != "auto":
+            return {
+                "route": "notice_search",
+                "route_reason": "사용자가 선택한 조회 방식으로 처리합니다.",
+            }
         decision = await planner.plan(
             state.get("messages", []), image_id=state.get("image_id")
         )
@@ -80,10 +88,16 @@ def create_agent_graph(
 
     async def notice_search_node(state: AgentState) -> dict[str, Any]:
         reference_date = state.get("reference_date") or datetime.now(SEOUL).date()
-        parsed = await search_parser.parse(
-            state["messages"], reference_date=reference_date
-        )
-        if parsed.search_type == "semantic_search":
+        mode = state.get("search_mode", "auto")
+        parsed = None
+        if mode != "semantic_search":
+            options = {"force_structured": True} if mode == "structured_search" else {}
+            parsed = await search_parser.parse(
+                state["messages"], reference_date=reference_date, **options
+            )
+        if mode == "semantic_search" or (
+            mode == "auto" and parsed.search_type == "semantic_search"
+        ):
             if rag_service is not None:
                 result = await rag_service.search(state["messages"][-1]["content"])
                 return {

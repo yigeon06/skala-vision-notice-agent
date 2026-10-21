@@ -34,14 +34,8 @@ function setLines(target, key, value) {
   target[key] = value.split('\n').map((item) => item.trim()).filter(Boolean)
 }
 
-function dateTimeLocal(value) { return value ? value.slice(0, 16) : '' }
-
-function setDateTime(event, key, value) {
-  event[key] = value ? `${value}:00+09:00` : null
-}
-
 function addEvent() {
-  extraction.value.events.push({ event_type: 'other', date_text: '', start_at: null, end_at: null, all_day: false, location: null, evidence_text: '', confidence: 1 })
+  extraction.value.events.push({ event_type: 'other', date_text: '', start_date: null, end_date: null, location: null, evidence_text: '' })
 }
 
 function addPosition() {
@@ -118,9 +112,8 @@ function additionalCategoryLabel(category) {
             <div class="edit-card-heading"><strong>일정 {{ index + 1 }}</strong><button class="remove-button" type="button" @click="extraction.events.splice(index, 1)">삭제</button></div>
             <label>종류<select v-model="event.event_type"><option value="application_deadline">신청 마감</option><option value="event">행사</option><option value="submission_deadline">제출 마감</option><option value="announcement">발표</option><option value="other">기타</option></select></label>
             <label>날짜 표시 문구<input v-model="event.date_text" type="text" /></label>
-            <div class="two-columns"><label>시작 일시<input type="datetime-local" :value="dateTimeLocal(event.start_at)" @input="setDateTime(event, 'start_at', $event.target.value)" /></label><label>종료 일시<input type="datetime-local" :value="dateTimeLocal(event.end_at)" @input="setDateTime(event, 'end_at', $event.target.value)" /></label></div>
+            <div class="two-columns"><label>시작 날짜<input :value="event.start_date || ''" type="date" @input="event.start_date = $event.target.value || null" /></label><label>종료 날짜<input :value="event.end_date || ''" type="date" @input="event.end_date = $event.target.value || null" /></label></div>
             <label>장소<input v-model="event.location" type="text" /></label>
-            <label class="check-field"><input v-model="event.all_day" type="checkbox" /> 종일 일정</label>
             <details><summary>근거 OCR (읽기 전용)</summary><pre>{{ event.evidence_text || '추가된 일정에는 근거 OCR이 없습니다.' }}</pre></details>
           </article>
         </section>

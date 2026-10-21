@@ -37,12 +37,10 @@ def test_upload_register_list_and_detail(tmp_path, monkeypatch) -> None:
         "events": [{
             "event_type": "application_deadline",
             "date_text": "2026년 10월 25일",
-            "start_at": "2026-10-25T00:00:00+09:00",
-            "end_at": None,
-            "all_day": True,
+            "start_date": "2026-10-25",
+            "end_date": None,
             "location": None,
             "evidence_text": "신청 마감: 2026년 10월 25일",
-            "confidence": 0.99,
         }],
         "confidence": 0.99,
     })
@@ -88,6 +86,13 @@ def test_upload_register_list_and_detail(tmp_path, monkeypatch) -> None:
         listing = client.get("/notices")
         assert listing.status_code == 200
         assert listing.json()["items"][0]["event_count"] == 1
+
+        calendar = client.get("/calendar/events?year=2026&month=10")
+        assert calendar.status_code == 200
+        assert calendar.json()["items"][0]["notice_id"] == registered.json()["notice_id"]
+        assert calendar.json()["undated"] == []
+        assert client.get("/calendar/events?year=2026&month=11").json()["items"] == []
+        assert client.get("/calendar/events?year=2026&month=13").status_code == 422
 
         detail = client.get(f"/notices/{registered.json()['notice_id']}")
         assert detail.status_code == 200

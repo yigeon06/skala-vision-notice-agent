@@ -25,6 +25,19 @@ class NoticeExtractor:
         extraction = NoticeExtraction(raw_text=ocr_text, **structured.model_dump())
         return extraction, {"models": {"vision": ocr_usage["model"], "structured": structured_usage["model"]}, "prompt_tokens": ocr_usage["prompt_tokens"] + structured_usage["prompt_tokens"], "completion_tokens": ocr_usage["completion_tokens"] + structured_usage["completion_tokens"], "elapsed_seconds": round(time.perf_counter() - started, 3), "ocr": ocr_usage, "structured": structured_usage}
 
+    async def restructure_notice(
+        self, ocr_text: str, reference_date: date, validation_issues: list[str],
+    ) -> tuple[NoticeExtraction, dict]:
+        structured, usage = await self.structured_llm.extract_notice(
+            ocr_text, reference_date, validation_issues=validation_issues,
+        )
+        structured = structured.model_copy(update={
+            "additional_information": _dedupe_additional_information(
+                structured.additional_information
+            ),
+        })
+        return NoticeExtraction(raw_text=ocr_text, **structured.model_dump()), usage
+
 
 def _dedupe_additional_information(
     sections: list[AdditionalInformation],

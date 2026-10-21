@@ -50,7 +50,6 @@ function eventDate(event) {
   if (!value) return '날짜 확인 필요'
   return new Intl.DateTimeFormat('ko-KR', {
     dateStyle: 'medium',
-    timeStyle: event.all_day ? undefined : 'short',
     timeZone: 'Asia/Seoul',
   }).format(new Date(value))
 }

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -33,10 +33,9 @@ from agent.search import NoticeSearchError, OpenAINoticeSearchParser
 from agent.schemas import NoticeExtraction
 from agent.structured_llm import OpenAIStructuredLLM, StructuredOutputError
 from agent.vision_llm import OCRError, OllamaVisionLLM
-from notice.date_normalizer import normalize_extraction
 from notice.image_store import ImageStore
 from notice.repository import NoticeRepository
-from notice.service import validate_extraction
+from notice.service import extract_with_validation, validate_extraction
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -76,6 +75,7 @@ class ChatRequest(BaseModel):
 
 
 class AgentRequest(BaseModel):
+    search_mode: Literal["auto", "structured_search", "semantic_search"] = "auto"
     messages: list[ChatMessage] = Field(default_factory=list)
     image_id: str | None = None
     reference_date: date | None = None
@@ -180,16 +180,14 @@ async def _extract_notice(image_id: str, reference_date: date | None):
 
     effective_date = reference_date or datetime.now(SEOUL).date()
     try:
-        extraction, usage = await app.state.notice_extractor.extract_notice(
-            image_path, effective_date
+        normalized, validation, usage = await extract_with_validation(
+            app.state.notice_extractor, image_path, effective_date
         )
     except OCRError as exc:
         raise HTTPException(status_code=502, detail=f"OCR 실패: {exc}") from exc
     except StructuredOutputError as exc:
         raise HTTPException(status_code=502, detail=f"JSON 구조화 실패: {exc}") from exc
 
-    normalized = normalize_extraction(extraction, effective_date)
-    validation = validate_extraction(normalized)
     return image_path, normalized, validation, usage
 
 
@@ -246,6 +244,7 @@ async def run_agent(req: AgentRequest):
                 "messages": [message.model_dump() for message in req.messages],
                 "image_id": req.image_id,
                 "reference_date": req.reference_date,
+                "search_mode": req.search_mode,
             }
         )
     except (PlanningError, NoticeSearchError, ChatError, EmbeddingError, RAGError) as exc:
@@ -321,6 +320,19 @@ async def register_notice(req: RegisterNoticeRequest):
 @app.get("/notices")
 async def list_notices():
     return {"items": app.state.notice_repository.list_notices()}
+
+
+@app.get("/calendar/events")
+async def calendar_events(
+    year: int = Query(ge=1, le=9998), month: int = Query(ge=1, le=12)
+):
+    month_start = date(year, month, 1).isoformat()
+    next_month_start = (
+        date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    ).isoformat()
+    return app.state.notice_repository.list_calendar_events(
+        month_start, next_month_start
+    )
 
 
 @app.get("/notices/{notice_id}")

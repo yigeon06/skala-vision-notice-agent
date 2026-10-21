@@ -11,18 +11,16 @@ from notice.repository import NoticeRepository
 def _event(
     event_type: str,
     date_text: str,
-    start_at: str | None,
-    end_at: str | None = None,
+    start_date: str | None,
+    end_date: str | None = None,
 ) -> NoticeEventExtraction:
     return NoticeEventExtraction(
         event_type=event_type,
         date_text=date_text,
-        start_at=start_at,
-        end_at=end_at,
-        all_day=True,
+        start_date=start_date,
+        end_date=end_date,
         location=None,
         evidence_text=date_text,
-        confidence=0.9,
     )
 
 
@@ -51,8 +49,8 @@ def _repository(tmp_path: Path) -> NoticeRepository:
                 _event(
                     "application_deadline",
                     "10월 1일부터 23일까지",
-                    "2026-10-01T00:00:00+09:00",
-                    "2026-10-23T23:59:59+09:00",
+                    "2026-10-01",
+                    "2026-10-23",
                 )
             ],
         ),
@@ -64,7 +62,7 @@ def _repository(tmp_path: Path) -> NoticeRepository:
         request_id="next-week",
         extraction=_notice(
             "다음 주 행사",
-            [_event("event", "10월 28일", "2026-10-28T10:00:00+09:00")],
+            [_event("event", "10월 28일", "2026-10-28")],
         ),
         source_image_path="event.png",
         source_image_hash="event",

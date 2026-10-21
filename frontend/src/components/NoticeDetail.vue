@@ -4,7 +4,7 @@ function formatDate(value) {
   if (!value) return '확인 필요'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Seoul' }).format(date)
+  return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeZone: 'Asia/Seoul' }).format(date)
 }
 const additionalCategoryLabels = {
   preferred_certification: '우대 자격증',
@@ -36,7 +36,7 @@ function additionalCategoryLabel(category) {
         <div class="detail-events">
           <div v-for="event in notice.events" :key="event.id">
             <strong>{{ event.date_text }}</strong>
-            <span>{{ formatDate(event.start_at) }}<template v-if="event.end_at"> ~ {{ formatDate(event.end_at) }}</template><template v-if="event.all_day"> · 종일</template></span>
+            <span>{{ formatDate(event.start_at) }}<template v-if="event.end_at"> ~ {{ formatDate(event.end_at) }}</template></span>
             <p>{{ event.location || event.evidence_text }}</p>
           </div>
         </div>

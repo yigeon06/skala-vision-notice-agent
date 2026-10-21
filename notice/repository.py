@@ -159,7 +159,13 @@ class NoticeRepository:
             )
             notice_id = int(cursor.lastrowid)
             for event in extraction.events:
-                event_status = "confirmed" if event.start_at else "needs_review"
+                event_status = (
+                    "confirmed"
+                    if event.start_date and (
+                        not event.end_date or event.end_date >= event.start_date
+                    )
+                    else "needs_review"
+                )
                 connection.execute(
                     """
                     INSERT INTO notice_events (
@@ -171,13 +177,13 @@ class NoticeRepository:
                         notice_id,
                         event.event_type,
                         event.date_text,
-                        event.start_at,
-                        event.end_at,
-                        int(event.all_day),
+                        f"{event.start_date}T00:00:00+09:00" if event.start_date else None,
+                        f"{event.end_date}T23:59:59+09:00" if event.end_date else None,
+                        1,
                         event.location,
                         event.evidence_text,
                         event_status,
-                        event.confidence,
+                        extraction.confidence,
                     ),
                 )
             for position_order, position in enumerate(extraction.recruitment_positions):
@@ -355,6 +361,42 @@ class NoticeRepository:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_calendar_events(self, month_start: str, next_month_start: str) -> dict:
+        """월간 달력에 걸치는 일정과 날짜 미확정 일정을 조회한다."""
+        effective_at = (
+            "CASE WHEN e.event_type IN ('application_deadline', 'submission_deadline') "
+            "AND e.end_at IS NOT NULL THEN e.end_at ELSE e.start_at END"
+        )
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT e.id, e.notice_id, n.title AS notice_title,
+                       n.status AS notice_status, e.event_type, e.date_text,
+                       e.start_at, e.end_at, e.all_day, e.location,
+                       e.evidence_text, e.status, {effective_at} AS effective_at
+                FROM notice_events AS e
+                JOIN notices AS n ON n.id = e.notice_id
+                WHERE {effective_at} IS NULL
+                   OR (
+                       e.event_type IN ('application_deadline', 'submission_deadline')
+                       AND substr({effective_at}, 1, 10) >= ?
+                       AND substr({effective_at}, 1, 10) < ?
+                   )
+                   OR (
+                       e.event_type NOT IN ('application_deadline', 'submission_deadline')
+                       AND substr(e.start_at, 1, 10) < ?
+                       AND substr(COALESCE(e.end_at, e.start_at), 1, 10) >= ?
+                   )
+                ORDER BY effective_at IS NULL, effective_at, e.id
+                """,
+                (month_start, next_month_start, next_month_start, month_start),
+            ).fetchall()
+        events = [{**dict(row), "all_day": bool(row["all_day"])} for row in rows]
+        return {
+            "items": [row for row in events if row["effective_at"] is not None],
+            "undated": [row for row in events if row["effective_at"] is None],
+        }
 
     def search_notices(
         self,

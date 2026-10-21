@@ -4,15 +4,33 @@ import ChatMessage from './components/ChatMessage.vue'
 import ExtractionCard from './components/ExtractionCard.vue'
 import NoticeDetail from './components/NoticeDetail.vue'
 import SearchResultCard from './components/SearchResultCard.vue'
+import CalendarView from './components/CalendarView.vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8100'
 const messages = ref([])
 const draft = ref('')
+const searchMode = ref('auto')
+const searchModes = [
+  { value: 'auto', label: '자동' },
+  { value: 'structured_search', label: '공지/일정 조회' },
+  { value: 'semantic_search', label: '세부 내용 조회' },
+]
 const attachment = ref(null)
 const attachmentUrl = ref('')
 const notices = ref([])
 const selectedNotice = ref(null)
 const selectedId = ref(null)
+const view = ref('chat')
+const seoulToday = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Seoul', year: 'numeric', month: 'numeric',
+}).formatToParts(new Date())
+const todayParts = Object.fromEntries(seoulToday.map(part => [part.type, Number(part.value)]))
+const calendarYear = ref(todayParts.year)
+const calendarMonth = ref(todayParts.month)
+const calendarItems = ref([])
+const calendarUndated = ref([])
+const calendarLoading = ref(false)
+const calendarError = ref('')
 const busy = ref(false)
 const listLoading = ref(false)
 const detailLoading = ref(false)
@@ -25,6 +43,7 @@ const fileInput = ref(null)
 const composer = ref(null)
 const urls = new Set()
 let detailVersion = 0
+let calendarVersion = 0
 
 const canSend = computed(() => !busy.value && (draft.value.trim() || attachment.value))
 
@@ -81,6 +100,7 @@ async function send() {
     content: draft.value.trim() || '이 공지 이미지를 분석해 주세요.',
     file: attachment.value, preview: attachmentUrl.value,
     status: 'pending', error: '', imageId: '', requestId: crypto.randomUUID(),
+    searchMode: searchMode.value,
   }
   // 미리보기 URL의 소유권을 메시지로 옮긴다. 다른 첨부와 독립적으로 유지한다.
   attachment.value = null
@@ -102,7 +122,7 @@ async function processMessage(item) {
     const history = messages.value.slice(0, index + 1)
       .filter(message => message.content && message.role && (message.status === 'complete' || message.id === item.id))
       .map(({ role, content }) => ({ role, content }))
-    const payload = { messages: history }
+    const payload = { messages: history, search_mode: item.searchMode || 'auto' }
 
     if (item.kind === 'image') {
       if (!item.imageId) {
@@ -173,6 +193,7 @@ async function saveNotice(item, extraction) {
       item.feedback += ' · 의미 검색 준비 완료'
     }
     await loadNotices()
+    if (view.value === 'calendar') await loadCalendar()
   } catch (error) {
     item.error = error.message
   } finally {
@@ -191,6 +212,49 @@ async function loadNotices() {
   } finally {
     listLoading.value = false
   }
+}
+
+async function loadCalendar() {
+  const version = ++calendarVersion
+  calendarLoading.value = true
+  calendarError.value = ''
+  try {
+    const result = await api(`/calendar/events?year=${calendarYear.value}&month=${calendarMonth.value}`)
+    if (version === calendarVersion) {
+      calendarItems.value = result.items
+      calendarUndated.value = result.undated
+    }
+  } catch (error) {
+    if (version === calendarVersion) calendarError.value = error.message
+  } finally {
+    if (version === calendarVersion) calendarLoading.value = false
+  }
+}
+
+function showCalendar() {
+  closeDetail()
+  view.value = 'calendar'
+  sidebarOpen.value = false
+  loadCalendar()
+}
+
+function showChat() {
+  closeDetail()
+  view.value = 'chat'
+  sidebarOpen.value = false
+}
+
+function changeCalendarMonth(offset) {
+  const date = new Date(calendarYear.value, calendarMonth.value - 1 + offset, 1)
+  calendarYear.value = date.getFullYear()
+  calendarMonth.value = date.getMonth() + 1
+  loadCalendar()
+}
+
+function showCurrentMonth() {
+  calendarYear.value = todayParts.year
+  calendarMonth.value = todayParts.month
+  loadCalendar()
 }
 
 async function openNotice(id) {
@@ -233,10 +297,11 @@ onBeforeUnmount(() => { for (const url of urls) URL.revokeObjectURL(url) })
   <div class="app-shell">
     <button v-if="sidebarOpen" class="sidebar-backdrop" aria-label="공지 목록 닫기" @click="sidebarOpen = false"></button>
     <aside class="sidebar" :class="{ 'is-open': sidebarOpen }" aria-label="저장된 공지">
-      <a class="brand" href="#" @click.prevent="closeDetail(); sidebarOpen = false">
+      <a class="brand" href="#" @click.prevent="showChat">
         <span class="brand-symbol">N</span><span>Notice<span class="brand-subtitle">공지·일정 도우미</span></span>
       </a>
-      <button class="conversation-button" @click="closeDetail(); sidebarOpen = false">대화로 돌아가기 <span>↗</span></button>
+      <button class="conversation-button" @click="showChat">대화 보기 <span>↗</span></button>
+      <button class="conversation-button calendar-sidebar-button" @click="showCalendar">달력 보기 <span>▦</span></button>
       <div class="sidebar-heading"><h2>저장된 공지</h2><button class="text-button" :disabled="listLoading" @click="loadNotices">새로고침</button></div>
       <p v-if="listLoading" class="sidebar-note" role="status">목록을 불러오는 중…</p>
       <div v-if="listError" class="feedback error" role="alert">{{ listError }}<button class="text-button" @click="loadNotices">다시 시도</button></div>
@@ -253,17 +318,23 @@ onBeforeUnmount(() => { for (const url of urls) URL.revokeObjectURL(url) })
     <main class="workspace">
       <header class="chat-header">
         <div class="header-title"><button class="menu-button" aria-label="공지 목록 열기" :aria-expanded="sidebarOpen" @click="sidebarOpen = true">☰</button><div><h1>공지 도우미</h1><p>대화하고, 공지를 정리하세요.</p></div></div>
-        <span class="header-badge">{{ selectedId !== null ? '공지 상세' : '일반 대화 · 이미지 등록' }}</span>
+        <span class="header-badge">{{ selectedId !== null ? '공지 상세' : view === 'calendar' ? '저장된 일정 달력' : '일반 대화 · 이미지 등록' }}</span>
       </header>
 
       <section v-if="selectedId !== null" class="notice-workspace" aria-label="공지 상세">
-        <button class="text-button back-button" @click="closeDetail">← 대화로 돌아가기</button>
+        <button class="text-button back-button" @click="closeDetail">← {{ view === 'calendar' ? '달력으로 돌아가기' : '대화로 돌아가기' }}</button>
         <p v-if="detailLoading" role="status">공지를 불러오는 중…</p>
         <div v-if="detailError" class="feedback error" role="alert">{{ detailError }} <button class="text-button" @click="openNotice(selectedId)">다시 시도</button></div>
         <NoticeDetail :notice="selectedNotice" />
       </section>
 
-      <div v-show="selectedId === null" class="chat-pane">
+      <section v-if="selectedId === null && view === 'calendar'" class="calendar-workspace">
+        <CalendarView :year="calendarYear" :month="calendarMonth" :items="calendarItems" :undated="calendarUndated"
+          :loading="calendarLoading" :error="calendarError" @previous="changeCalendarMonth(-1)"
+          @next="changeCalendarMonth(1)" @today="showCurrentMonth" @retry="loadCalendar" @open="openNotice" />
+      </section>
+
+      <div v-show="selectedId === null && view === 'chat'" class="chat-pane">
         <section class="conversation" aria-label="대화 내용" :aria-busy="busy">
           <div v-if="!messages.length" class="welcome">
             <span class="welcome-symbol">N</span><p class="eyebrow">YOUR NOTICE ASSISTANT</p>
@@ -286,6 +357,11 @@ onBeforeUnmount(() => { for (const url of urls) URL.revokeObjectURL(url) })
         </section>
 
         <footer class="composer-area">
+          <div class="search-mode-picker" role="group" aria-label="조회 방식">
+            <button v-for="mode in searchModes" :key="mode.value" type="button"
+              :aria-pressed="searchMode === mode.value" :class="{ selected: searchMode === mode.value }"
+              :disabled="busy" @click="searchMode = mode.value">{{ mode.label }}</button>
+          </div>
           <form class="composer" @submit.prevent="send">
             <div v-if="attachment" class="attachment-preview"><img :src="attachmentUrl" alt="첨부 이미지 미리보기" /><span>{{ attachment.name }}<small>공지 이미지로 분석합니다.</small></span><button type="button" aria-label="첨부 이미지 삭제" :disabled="busy" @click="removeAttachment">×</button></div>
             <label class="sr-only" for="chat-input">메시지 입력</label>

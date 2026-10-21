@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -264,3 +264,51 @@ def test_planner_hides_external_api_error():
     with pytest.raises(PlanningError, match="요청 유형을 판단하지 못했습니다") as exc_info:
         asyncio.run(planner.plan([{"role": "user", "content": "안녕"}]))
     assert "PRIVATE_REQUEST_DETAILS" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("mode", ["structured_search", "semantic_search"])
+def test_explicit_search_mode_bypasses_automatic_classification(mode):
+    planner = FakePlanner(route="general_chat")
+    parser = SimpleNamespace(parse=AsyncMock(return_value=NoticeSearchFilters(
+        search_type="semantic_search", period="this_week",
+    )))
+    repository = SimpleNamespace(search_notices=Mock(return_value=[]))
+    rag = SimpleNamespace(search=AsyncMock(return_value={"message": "답변", "sources": []}))
+    graph = create_agent_graph(
+        planner=planner, chat_llm=FakeChatLLM(), extract_notice=AsyncMock(),
+        search_parser=parser, notice_repository=repository, rag_service=rag,
+    )
+    result = asyncio.run(graph.ainvoke({
+        "messages": [{"role": "user", "content": "공고 내용을 알려줘"}],
+        "search_mode": mode,
+    }))
+    assert planner.calls == []
+    assert result["route"] == "notice_search"
+    assert result["data"]["search_type"] == mode
+    if mode == "structured_search":
+        assert parser.parse.call_args.kwargs["force_structured"] is True
+        repository.search_notices.assert_called_once()
+        rag.search.assert_not_awaited()
+    else:
+        parser.parse.assert_not_awaited()
+        repository.search_notices.assert_not_called()
+        rag.search.assert_awaited_once_with("공고 내용을 알려줘")
+
+
+@pytest.mark.parametrize("mode", ["structured_search", "semantic_search"])
+def test_image_registration_takes_priority_over_search_mode(agent_client, mode):
+    client, _, _, extract_notice = agent_client
+    response = client.post("/agent", json={"image_id": "image-1", "search_mode": mode})
+    assert response.status_code == 200
+    assert response.json()["route"] == "notice_register"
+    extract_notice.assert_awaited_once()
+
+
+def test_search_mode_validation_and_api_forwarding(agent_client):
+    client, planner, _, _ = agent_client
+    messages = [{"role": "user", "content": "이번 주 일정"}]
+    assert client.post("/agent", json={"messages": messages, "search_mode": "invalid"}).status_code == 422
+    response = client.post("/agent", json={"messages": messages, "search_mode": "semantic_search"})
+    assert response.status_code == 200
+    assert response.json()["data"]["search_type"] == "semantic_search"
+    assert planner.calls == []

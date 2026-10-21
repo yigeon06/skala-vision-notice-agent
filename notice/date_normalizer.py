@@ -1,33 +1,27 @@
-"""추출된 날짜 표현을 Asia/Seoul ISO 8601 값으로 정규화한다."""
+"""추출된 날짜 표현을 YYYY-MM-DD 값으로 정규화한다."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
-from zoneinfo import ZoneInfo
+from datetime import date
 
 from agent.schemas import NoticeEventExtraction, NoticeExtraction
 
 
-SEOUL = ZoneInfo("Asia/Seoul")
-TIME_SUFFIX = (
-    r"(?:\s*\([월화수목금토일]\))?"
-    r"(?:\s*(?P<ampm>오전|오후)?\s*(?P<hour>\d{1,2})"
-    r"\s*(?:시|:)\s*(?P<minute>\d{1,2})?\s*분?)?"
-)
+WEEKDAY_SUFFIX = r"(?:\s*\([월화수목금토일]\))?"
 KOREAN_DATE = re.compile(
     r"(?:(?P<year>20\d{2})\s*년\s*)?"
     r"(?P<month>\d{1,2})\s*월\s*(?P<day>\d{1,2})\s*일"
-    + TIME_SUFFIX
+    + WEEKDAY_SUFFIX
 )
 DOT_DATE = re.compile(
     r"(?<!\d)(?:(?P<year>20\d{2})\s*[./-]\s*)?"
     r"(?P<month>\d{1,2})\s*[./-]\s*(?P<day>\d{1,2})(?!\d)"
-    + TIME_SUFFIX
+    + WEEKDAY_SUFFIX
 )
 DAY_ONLY = re.compile(
-    r"(?<!\d)(?P<day>\d{1,2})\s*일" + TIME_SUFFIX
+    r"(?<!\d)(?P<day>\d{1,2})\s*일" + WEEKDAY_SUFFIX
 )
 
 
@@ -38,26 +32,15 @@ class _DateToken:
     year: int | None
     month: int | None
     day: int
-    hour: int | None
-    minute: int
 
 
 def _token_from_match(match: re.Match[str]) -> _DateToken:
-    hour_text = match.groupdict().get("hour")
-    hour = int(hour_text) if hour_text else None
-    ampm = match.groupdict().get("ampm")
-    if hour is not None and ampm == "오후" and hour < 12:
-        hour += 12
-    if hour is not None and ampm == "오전" and hour == 12:
-        hour = 0
     return _DateToken(
         start=match.start(),
         end=match.end(),
         year=int(match.group("year")) if match.groupdict().get("year") else None,
         month=int(match.group("month")) if match.groupdict().get("month") else None,
         day=int(match.group("day")),
-        hour=hour,
-        minute=int(match.groupdict().get("minute") or 0),
     )
 
 
@@ -77,63 +60,44 @@ def _extract_date_tokens(text: str) -> list[_DateToken]:
     return sorted(selected, key=lambda token: token.start)
 
 
-def _normalize_existing(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=SEOUL)
-    else:
-        parsed = parsed.astimezone(SEOUL)
-    return parsed.isoformat()
-
-
-def _to_datetime(
+def _to_date(
     token: _DateToken,
     reference_date: date,
     *,
     previous: _DateToken | None = None,
-    range_end: bool = False,
-) -> datetime | None:
+) -> date | None:
     year = token.year or (previous.year if previous else None) or reference_date.year
     month = token.month or (previous.month if previous else None)
     if month is None:
         return None
-    if token.hour is None:
-        hour, minute, second = (23, 59, 59) if range_end else (0, 0, 0)
-    else:
-        hour, minute, second = token.hour, token.minute, 0
     try:
-        return datetime(year, month, token.day, hour, minute, second, tzinfo=SEOUL)
+        return date(year, month, token.day)
     except ValueError:
         return None
 
 
 def _parse_date_values(
     text: str, reference_date: date
-) -> tuple[str | None, str | None, bool]:
+) -> tuple[str | None, str | None]:
     tokens = _extract_date_tokens(text)
     if not tokens:
-        return None, None, False
-    start = _to_datetime(tokens[0], reference_date)
+        return None, None
+    start = _to_date(tokens[0], reference_date)
     if start is None:
-        return None, None, tokens[0].hour is None
+        return None, None
     end = None
     if len(tokens) >= 2:
-        end = _to_datetime(
+        end = _to_date(
             tokens[1],
             reference_date,
             previous=tokens[0],
-            range_end=True,
         )
-    return (
-        start.isoformat(),
-        end.isoformat() if end else None,
-        tokens[0].hour is None,
-    )
+    return start.isoformat(), end.isoformat() if end and end != start else None
+
+
+def has_explicit_date(text: str) -> bool:
+    """월·일이 명시된 날짜 표현을 찾고 일만 적힌 표현은 제외한다."""
+    return any(token.month is not None for token in _extract_date_tokens(text))
 
 
 def normalize_extraction(
@@ -141,21 +105,22 @@ def normalize_extraction(
 ) -> NoticeExtraction:
     normalized_events: list[NoticeEventExtraction] = []
     for event in extraction.events:
-        source_text = f"{event.date_text} {event.evidence_text}"
-        parsed_start, parsed_end, parsed_all_day = _parse_date_values(
-            source_text, reference_date
+        date_text_tokens = _extract_date_tokens(event.date_text)
+        evidence_tokens = _extract_date_tokens(event.evidence_text)
+        source_text = (
+            event.date_text if len(date_text_tokens) >= len(evidence_tokens)
+            else event.evidence_text
         )
-        start_at = parsed_start or _normalize_existing(event.start_at)
-        end_at = parsed_end or _normalize_existing(event.end_at)
-        all_day = parsed_all_day if parsed_start is not None else event.all_day
+        parsed_start, parsed_end = _parse_date_values(source_text, reference_date)
+        start_date = parsed_start or event.start_date
+        end_date = parsed_end or event.end_date
         date_text = event.date_text.strip() or event.evidence_text.strip()
         normalized_events.append(
             event.model_copy(
                 update={
                     "date_text": date_text,
-                    "start_at": start_at,
-                    "end_at": end_at,
-                    "all_day": all_day,
+                    "start_date": start_date,
+                    "end_date": end_date,
                 }
             )
         )

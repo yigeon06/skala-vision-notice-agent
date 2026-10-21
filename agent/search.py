@@ -18,6 +18,7 @@ SearchPeriod = Literal[
 ]
 SearchStatus = Literal["all", "confirmed", "needs_review"]
 StatusScope = Literal["notice", "event"]
+SearchMode = Literal["auto", "structured_search", "semantic_search"]
 
 
 class NoticeSearchFilters(BaseModel):
@@ -68,6 +69,7 @@ class OpenAINoticeSearchParser:
         messages: list[dict[str, str]],
         *,
         reference_date: date,
+        force_structured: bool = False,
     ) -> NoticeSearchFilters:
         try:
             response = await self.client.responses.parse(
@@ -86,6 +88,11 @@ class OpenAINoticeSearchParser:
                     " 날짜·상태·일정 유형으로 답할 수 있거나 전체 공지 목록을 요청하면 structured_search다. "
                     "특정 공지의 신청 방법·제출서류·지원 자격·우대사항처럼 본문 의미 검색이 필요하면 semantic_search다. "
                     "semantic_search인 경우 나머지 필터는 기본값으로 둔다."
+                    + (
+                        " 사용자가 공지/일정 조회를 선택했다. 반드시 structured_search로 처리하고 "
+                        "질문에 명시된 기간·상태·일정 유형 조건을 추출하라."
+                        if force_structured else ""
+                    )
                 ),
                 text_format=NoticeSearchFilters,
                 store=False,
