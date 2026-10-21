@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from array import array
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -61,13 +62,22 @@ class NoticeRepository:
                     FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE
                 );
 
-                CREATE TABLE IF NOT EXISTS notice_embeddings (
-                    notice_id INTEGER PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS notice_embedding_chunks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notice_id INTEGER NOT NULL,
+                    chunk_type TEXT NOT NULL CHECK(chunk_type IN (
+                        'structured', 'cleaned_text', 'raw_text'
+                    )),
+                    chunk_index INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     dimensions INTEGER NOT NULL,
                     vector BLOB NOT NULL,
                     created_at TEXT NOT NULL,
-                    FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE
+                    FOREIGN KEY(notice_id) REFERENCES notices(id) ON DELETE CASCADE,
+                    UNIQUE(notice_id, chunk_type, chunk_index, provider, model)
                 );
 
                 CREATE TABLE IF NOT EXISTS notice_recruitment_positions (
@@ -104,6 +114,8 @@ class NoticeRepository:
                 ON notice_recruitment_positions(notice_id, position_order);
                 CREATE INDEX IF NOT EXISTS idx_additional_information_notice
                 ON notice_additional_information(notice_id, information_order);
+                CREATE INDEX IF NOT EXISTS idx_embedding_chunks_model
+                ON notice_embedding_chunks(provider, model, notice_id);
                 """
             )
 
@@ -207,6 +219,65 @@ class NoticeRepository:
                 )
             return notice_id, True
 
+    def save_embedding_chunks(
+        self,
+        *,
+        notice_id: int,
+        provider: str,
+        model: str,
+        chunks: list,
+        vectors: list[list[float]],
+    ) -> None:
+        if len(chunks) != len(vectors):
+            raise ValueError("청크와 임베딩 벡터 개수가 일치해야 합니다.")
+        now = datetime.now(SEOUL).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM notice_embedding_chunks WHERE notice_id = ? AND provider = ? AND model = ?",
+                (notice_id, provider, model),
+            )
+            for chunk, vector in zip(chunks, vectors, strict=True):
+                connection.execute(
+                    """
+                    INSERT INTO notice_embedding_chunks (
+                        notice_id, chunk_type, chunk_index, content, content_hash,
+                        provider, model, dimensions, vector, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        notice_id,
+                        chunk.chunk_type,
+                        chunk.chunk_index,
+                        chunk.content,
+                        chunk.content_hash,
+                        provider,
+                        model,
+                        len(vector),
+                        array("f", vector).tobytes(),
+                        now,
+                    ),
+                )
+
+    def list_embedding_chunks(self, *, provider: str, model: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT notice_id, chunk_type, chunk_index, content, dimensions, vector
+                FROM notice_embedding_chunks
+                WHERE provider = ? AND model = ?
+                ORDER BY notice_id, chunk_type, chunk_index
+                """,
+                (provider, model),
+            ).fetchall()
+        result = []
+        for row in rows:
+            vector = array("f")
+            vector.frombytes(row["vector"])
+            if len(vector) != row["dimensions"]:
+                continue
+            result.append({**dict(row), "vector": list(vector)})
+        return result
+
     def get_notice(self, notice_id: int) -> dict | None:
         with self._connect() as connection:
             notice = connection.execute(
@@ -284,4 +355,107 @@ class NoticeRepository:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def search_notices(
+        self,
+        *,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        status: str = "all",
+        status_scope: str = "notice",
+        event_types: list[str] | None = None,
+    ) -> list[dict]:
+        """날짜·상태·일정 유형을 파라미터 바인딩 SQL로 조회한다."""
+        event_types = event_types or []
+        effective_at = (
+            "CASE WHEN e.event_type IN "
+            "('application_deadline', 'submission_deadline') "
+            "AND e.end_at IS NOT NULL THEN e.end_at ELSE e.start_at END"
+        )
+        conditions: list[str] = []
+        parameters: list[object] = []
+        event_filter_used = bool(start_at or end_at or event_types)
+
+        if status != "all":
+            if status_scope == "event":
+                conditions.append("e.status = ?")
+                event_filter_used = True
+            else:
+                conditions.append("n.status = ?")
+            parameters.append(status)
+        if start_at is not None:
+            conditions.append(f"{effective_at} >= ?")
+            parameters.append(start_at)
+        if end_at is not None:
+            conditions.append(f"{effective_at} < ?")
+            parameters.append(end_at)
+        if event_types:
+            placeholders = ", ".join("?" for _ in event_types)
+            conditions.append(f"e.event_type IN ({placeholders})")
+            parameters.extend(event_types)
+        if event_filter_used:
+            conditions.append("e.id IS NOT NULL")
+
+        where_clause = (
+            "WHERE " + " AND ".join(conditions) if conditions else ""
+        )
+        query = f"""
+            SELECT
+                n.id AS notice_id,
+                n.title,
+                n.status AS notice_status,
+                n.target_json,
+                n.action_required_json,
+                n.application_method,
+                n.created_at,
+                e.id AS event_id,
+                e.event_type,
+                e.date_text,
+                e.start_at,
+                e.end_at,
+                e.all_day,
+                e.location,
+                e.evidence_text,
+                e.status AS event_status,
+                {effective_at} AS effective_at
+            FROM notices AS n
+            LEFT JOIN notice_events AS e ON e.notice_id = n.id
+            {where_clause}
+            ORDER BY effective_at IS NULL, effective_at, n.created_at DESC, n.id DESC
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+
+        notices: dict[int, dict] = {}
+        for row in rows:
+            notice_id = int(row["notice_id"])
+            notice = notices.setdefault(
+                notice_id,
+                {
+                    "id": notice_id,
+                    "title": row["title"],
+                    "status": row["notice_status"],
+                    "target": json.loads(row["target_json"]),
+                    "action_required": json.loads(row["action_required_json"]),
+                    "application_method": row["application_method"],
+                    "created_at": row["created_at"],
+                    "events": [],
+                },
+            )
+            if row["event_id"] is not None:
+                notice["events"].append(
+                    {
+                        "id": int(row["event_id"]),
+                        "event_type": row["event_type"],
+                        "date_text": row["date_text"],
+                        "start_at": row["start_at"],
+                        "end_at": row["end_at"],
+                        "effective_at": row["effective_at"],
+                        "all_day": bool(row["all_day"]),
+                        "location": row["location"],
+                        "evidence_text": row["evidence_text"],
+                        "status": row["event_status"],
+                    }
+                )
+        return list(notices.values())
 

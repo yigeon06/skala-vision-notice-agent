@@ -7,6 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -15,9 +16,20 @@ load_dotenv()
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agent.notice_extractor import NoticeExtractor
+from agent.chat_llm import ChatError, OpenAIChatLLM
+from agent.embeddings import (
+    EmbeddingError,
+    OllamaEmbeddingProvider,
+    OpenAIEmbeddingProvider,
+    build_notice_chunks,
+)
+from agent.graph import create_agent_graph
+from agent.planner import OpenAIPlanner, PlanningError
+from agent.rag import NoticeRAGService, RAGError
+from agent.search import NoticeSearchError, OpenAINoticeSearchParser
 from agent.schemas import NoticeExtraction
 from agent.structured_llm import OpenAIStructuredLLM, StructuredOutputError
 from agent.vision_llm import OCRError, OllamaVisionLLM
@@ -41,6 +53,42 @@ class RegisterNoticeRequest(ExtractNoticeRequest):
     extraction: NoticeExtraction
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+    @field_validator("content")
+    @classmethod
+    def non_empty_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("메시지를 입력해 주세요.")
+        return value
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def last_message_is_user(self):
+        if self.messages[-1].role != "user":
+            raise ValueError("마지막 메시지는 사용자 메시지여야 합니다.")
+        return self
+
+
+class AgentRequest(BaseModel):
+    messages: list[ChatMessage] = Field(default_factory=list)
+    image_id: str | None = None
+    reference_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_agent_input(self):
+        if not self.messages and not self.image_id:
+            raise ValueError("메시지 또는 공지 이미지가 필요합니다.")
+        if self.messages and self.messages[-1].role != "user":
+            raise ValueError("마지막 메시지는 사용자 메시지여야 합니다.")
+        return self
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.image_store = ImageStore(PROJECT_ROOT / "data" / "uploads")
@@ -55,6 +103,54 @@ async def lifespan(app: FastAPI):
         max_retries=int(os.environ.get("OPENAI_MAX_RETRIES", "2")),
     )
     app.state.notice_extractor = NoticeExtractor(vision_llm, structured_llm)
+    app.state.chat_llm = OpenAIChatLLM(
+        model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini"),
+        client=structured_llm.client,
+    )
+    app.state.planner = OpenAIPlanner(
+        model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini"),
+        client=structured_llm.client,
+    )
+    app.state.search_parser = OpenAINoticeSearchParser(
+        model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini"),
+        client=structured_llm.client,
+    )
+    embedding_provider_name = os.environ.get("EMBEDDING_PROVIDER", "ollama").lower()
+    if embedding_provider_name == "ollama":
+        app.state.embedding_provider = OllamaEmbeddingProvider(
+            model=os.environ.get("OLLAMA_EMBEDDING_MODEL", "bge-m3"),
+            base_url=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+            timeout_sec=float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "60")),
+        )
+    elif embedding_provider_name == "openai":
+        app.state.embedding_provider = OpenAIEmbeddingProvider(
+            model=os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+            client=structured_llm.client,
+        )
+    else:
+        raise RuntimeError("EMBEDDING_PROVIDER는 ollama 또는 openai여야 합니다.")
+    app.state.embedding_chunk_size = int(
+        os.environ.get("EMBEDDING_CHUNK_SIZE", "1800")
+    )
+    app.state.embedding_chunk_overlap = int(
+        os.environ.get("EMBEDDING_CHUNK_OVERLAP", "250")
+    )
+    app.state.rag_service = NoticeRAGService(
+        embedding_provider=app.state.embedding_provider,
+        repository=app.state.notice_repository,
+        answer_client=structured_llm.client,
+        answer_model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini"),
+        top_k=int(os.environ.get("SEMANTIC_SEARCH_TOP_K", "3")),
+        chunks_per_notice=int(os.environ.get("RAG_CHUNKS_PER_NOTICE", "2")),
+    )
+    app.state.agent_graph = create_agent_graph(
+        planner=app.state.planner,
+        chat_llm=app.state.chat_llm,
+        extract_notice=_extract_notice,
+        search_parser=app.state.search_parser,
+        notice_repository=app.state.notice_repository,
+        rag_service=app.state.rag_service,
+    )
     yield
 
 
@@ -104,6 +200,8 @@ async def health():
         "vision_model": app.state.notice_extractor.vision_llm.model,
         "vision_num_ctx": app.state.notice_extractor.vision_llm.num_ctx,
         "openai_text_model": app.state.notice_extractor.structured_llm.model,
+        "embedding_provider": app.state.embedding_provider.provider,
+        "embedding_model": app.state.embedding_provider.model,
     }
 
 
@@ -129,6 +227,37 @@ async def extract_notice(req: ExtractNoticeRequest):
     }
 
 
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    try:
+        content = await app.state.chat_llm.reply(
+            [message.model_dump() for message in req.messages]
+        )
+    except ChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"role": "assistant", "content": content}
+
+
+@app.post("/agent")
+async def run_agent(req: AgentRequest):
+    try:
+        result = await app.state.agent_graph.ainvoke(
+            {
+                "messages": [message.model_dump() for message in req.messages],
+                "image_id": req.image_id,
+                "reference_date": req.reference_date,
+            }
+        )
+    except (PlanningError, NoticeSearchError, ChatError, EmbeddingError, RAGError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "route": result["route"],
+        "route_reason": result["route_reason"],
+        "message": result["message"],
+        "data": result.get("data", {}),
+    }
+
+
 @app.post("/notices/register")
 async def register_notice(req: RegisterNoticeRequest):
     try:
@@ -145,12 +274,42 @@ async def register_notice(req: RegisterNoticeRequest):
         source_image_hash=_image_sha256(image_path),
         status=validation.status,
     )
+    embedding = {
+        "status": "ready",
+        "provider": app.state.embedding_provider.provider,
+        "model": app.state.embedding_provider.model,
+    }
+    try:
+        chunks = build_notice_chunks(
+            extraction,
+            chunk_size=app.state.embedding_chunk_size,
+            overlap=app.state.embedding_chunk_overlap,
+        )
+        vectors = await app.state.embedding_provider.embed(
+            [chunk.content for chunk in chunks]
+        )
+        app.state.notice_repository.save_embedding_chunks(
+            notice_id=notice_id,
+            provider=app.state.embedding_provider.provider,
+            model=app.state.embedding_provider.model,
+            chunks=chunks,
+            vectors=vectors,
+        )
+        embedding["chunk_count"] = len(chunks)
+    except EmbeddingError as exc:
+        embedding = {
+            "status": "failed",
+            "provider": app.state.embedding_provider.provider,
+            "model": app.state.embedding_provider.model,
+            "warning": str(exc),
+        }
     return {
         "notice_id": notice_id,
         "created": created,
         "status": validation.status,
         "issues": validation.issues,
         "extraction": extraction.model_dump(mode="json"),
+        "embedding": embedding,
         "usage": {
             "models": {},
             "elapsed_seconds": 0,

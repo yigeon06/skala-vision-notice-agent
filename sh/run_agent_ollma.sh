@@ -15,6 +15,8 @@ if [ -f .env ]; then
 fi
 
 VISION_MODEL="${OLLAMA_VISION_MODEL:-qwen3-vl:4b-instruct}"
+EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-ollama}"
+EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-bge-m3}"
 
 if ! curl -s --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
   echo "Ollama 서버를 시작합니다..."
@@ -28,8 +30,14 @@ fi
 ollama list | grep "^${VISION_MODEL}" >/dev/null \
   || { echo "ERROR: $VISION_MODEL 미설치 — bash sh/setup_ollama.sh를 실행하세요."; exit 1; }
 
+if [ "$EMBEDDING_PROVIDER" = "ollama" ]; then
+  ollama list | grep "^${EMBEDDING_MODEL}" >/dev/null \
+    || { echo "ERROR: $EMBEDDING_MODEL 미설치 — bash sh/setup_ollama.sh를 실행하세요."; exit 1; }
+fi
+
 echo "공지·일정 API: http://127.0.0.1:8100"
 echo "Vision: $VISION_MODEL / num_ctx=${OLLAMA_VISION_NUM_CTX:-16384}"
+echo "Embedding: $EMBEDDING_PROVIDER / $EMBEDDING_MODEL"
 echo "종료: Ctrl+C"
 
 exec .venv/bin/python3 server.py

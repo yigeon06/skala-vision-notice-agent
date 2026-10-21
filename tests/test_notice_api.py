@@ -54,8 +54,16 @@ def test_upload_register_list_and_detail(tmp_path, monkeypatch) -> None:
         async def extract_notice(self, image_path, reference_date):
             raise AssertionError("저장 중 모델 추출이 다시 실행되면 안 됩니다.")
 
+    class FakeEmbeddingProvider:
+        provider = "ollama"
+        model = "fake-embedding"
+
+        async def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
     monkeypatch.setattr(server, "NoticeExtractor", lambda *_: FakeExtractor())
-    monkeypatch.setattr(server, "OpenAIStructuredLLM", lambda **_: object())
+    monkeypatch.setattr(server, "OllamaEmbeddingProvider", lambda **_: FakeEmbeddingProvider())
+    monkeypatch.setattr(server, "OpenAIStructuredLLM", lambda **_: SimpleNamespace(client=object()))
     with TestClient(server.app) as client:
         upload = client.post(
             "/images",
@@ -75,6 +83,7 @@ def test_upload_register_list_and_detail(tmp_path, monkeypatch) -> None:
         assert registered.status_code == 200
         assert registered.json()["created"] is True
         assert registered.json()["usage"]["source"] == "provided_extraction"
+        assert registered.json()["embedding"]["status"] == "ready"
 
         listing = client.get("/notices")
         assert listing.status_code == 200

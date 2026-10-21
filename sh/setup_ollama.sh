@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VISION_MODEL="${OLLAMA_VISION_MODEL:-qwen3-vl:4b-instruct}"
+EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-bge-m3}"
 
 command -v ollama >/dev/null 2>&1 \
   || { echo "ERROR: Ollama를 먼저 설치하세요: https://ollama.com"; exit 1; }
@@ -26,4 +27,11 @@ else
   ollama pull "$VISION_MODEL"
 fi
 
-echo "준비 완료: $VISION_MODEL"
+if ollama list | grep "^${EMBEDDING_MODEL}" >/dev/null; then
+  echo "이미 설치됨: $EMBEDDING_MODEL"
+else
+  echo "모델을 받습니다: $EMBEDDING_MODEL"
+  ollama pull "$EMBEDDING_MODEL"
+fi
+
+echo "준비 완료: $VISION_MODEL, $EMBEDDING_MODEL"
