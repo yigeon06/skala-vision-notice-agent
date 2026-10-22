@@ -10,6 +10,7 @@ from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from agent.embeddings import EmbeddingError, EmbeddingProvider
+from agent.tracing import record_trace_metadata, traceable
 from notice.repository import NoticeRepository
 
 
@@ -49,12 +50,14 @@ class NoticeRAGService:
         self.top_k = top_k
         self.chunks_per_notice = chunks_per_notice
 
+    @traceable(run_type="chain", name="notice.semantic_search")
     async def search(self, question: str) -> dict[str, Any]:
         chunks = self.repository.list_embedding_chunks(
             provider=self.embedding_provider.provider,
             model=self.embedding_provider.model,
         )
         if not chunks:
+            record_trace_metadata(result_count=0, source_count=0)
             return {
                 "message": "의미 검색이 준비된 공지가 없습니다. 공지를 새로 등록해 주세요.",
                 "sources": [],
@@ -122,6 +125,7 @@ class NoticeRAGService:
             context_parts.append(f"[공지 ID {notice_id} · {notice['title']}]\n{evidence}")
 
         if not sources:
+            record_trace_metadata(result_count=0, source_count=0)
             return {"message": "질문과 관련된 공지를 찾지 못했습니다.", "sources": []}
         try:
             response = await self.answer_client.responses.parse(
@@ -145,16 +149,28 @@ class NoticeRAGService:
                 text_format=RAGAnswer,
                 store=False,
             )
-        except (APIError, ValidationError) as exc:
-            raise RAGError("검색 답변을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.") from exc
+        except (APIError, ValidationError):
+            raise RAGError("검색 답변을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.") from None
         decision = response.output_parsed
         if response.status != "completed" or decision is None:
             raise RAGError("검색 답변이 완성되지 않았습니다. 다시 시도해 주세요.")
+        usage = getattr(response, "usage", None)
+        token_metadata = {
+            "model": self.answer_model,
+            "prompt_tokens": getattr(usage, "input_tokens", None),
+            "completion_tokens": getattr(usage, "output_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
         if not decision.supported:
+            record_trace_metadata(**token_metadata, result_count=len(sources), source_count=0)
             return {"message": NO_SUPPORTED_ANSWER, "sources": []}
 
         cited_ids = set(decision.source_notice_ids)
         cited_sources = [source for source in sources if source["id"] in cited_ids]
         if not cited_sources or not decision.answer.strip():
+            record_trace_metadata(**token_metadata, result_count=len(sources), source_count=0)
             return {"message": NO_SUPPORTED_ANSWER, "sources": []}
+        record_trace_metadata(
+            **token_metadata, result_count=len(sources), source_count=len(cited_sources),
+        )
         return {"message": decision.answer.strip(), "sources": cited_sources}

@@ -7,6 +7,8 @@ from typing import Literal
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
+from agent.tracing import record_trace_metadata, traceable
+
 
 AgentRoute = Literal["general_chat", "notice_register", "notice_search"]
 
@@ -27,6 +29,7 @@ class OpenAIPlanner:
         self.model = model
         self.client = client
 
+    @traceable(run_type="llm", name="notice.plan_route")
     async def plan(
         self,
         messages: list[dict[str, str]],
@@ -34,6 +37,7 @@ class OpenAIPlanner:
         image_id: str | None = None,
     ) -> PlanningDecision:
         if image_id:
+            record_trace_metadata(route="notice_register")
             return PlanningDecision(
                 route="notice_register",
                 route_reason="공지 이미지가 첨부되었습니다.",
@@ -53,14 +57,21 @@ class OpenAIPlanner:
                 text_format=PlanningDecision,
                 store=False,
             )
-        except (APIError, ValidationError) as exc:
+        except (APIError, ValidationError):
             raise PlanningError(
                 "요청 유형을 판단하지 못했습니다. 잠시 후 다시 시도해 주세요."
-            ) from exc
+            ) from None
 
         decision = response.output_parsed
         if response.status != "completed" or decision is None:
             raise PlanningError(
                 "요청 유형 판단이 완성되지 않았습니다. 다시 시도해 주세요."
             )
+        usage = getattr(response, "usage", None)
+        record_trace_metadata(
+            model=self.model, route=decision.route,
+            prompt_tokens=getattr(usage, "input_tokens", None),
+            completion_tokens=getattr(usage, "output_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+        )
         return decision

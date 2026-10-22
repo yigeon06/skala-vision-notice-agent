@@ -18,6 +18,7 @@ from agent.search import (
     format_search_response,
     resolve_search_filters,
 )
+from agent.tracing import record_trace_metadata
 from notice.repository import NoticeRepository
 
 
@@ -122,6 +123,10 @@ def create_agent_graph(
             status=filters.status,
             status_scope=filters.status_scope,
             event_types=filters.event_types,
+        )
+        record_trace_metadata(
+            search_type="structured_search", period=filters.period,
+            status=filters.status, result_count=len(results),
         )
         return {
             "message": format_search_response(results),

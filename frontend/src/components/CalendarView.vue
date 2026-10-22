@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { calendarEventsOnDate, seoulDate } from '../calendarOccurrences.js'
 
 const props = defineProps({
   year: Number,
@@ -28,30 +29,12 @@ watch(() => [props.year, props.month], () => {
   selectedDay.value = parts.year === props.year && parts.month === props.month ? parts.day : 1
 }, { immediate: true })
 
-function seoulDate(value) {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(date)
-  const fields = Object.fromEntries(parts.map(part => [part.type, part.value]))
-  return `${fields.year}-${fields.month}-${fields.day}`
-}
-
 function dayKey(day) {
   return `${props.year}-${String(props.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 function eventsOn(day) {
-  const key = dayKey(day)
-  return props.items.filter(event => {
-    const deadline = ['application_deadline', 'submission_deadline'].includes(event.event_type)
-    const start = seoulDate(deadline ? event.effective_at : event.start_at)
-    if (!start) return false
-    if (deadline) return start === key
-    return start <= key && (seoulDate(event.end_at) || start) >= key
-  })
+  return calendarEventsOnDate(props.items, dayKey(day))
 }
 
 const daysInMonth = computed(() => new Date(props.year, props.month, 0).getDate())
@@ -89,7 +72,7 @@ function eventDateRange(event) {
         <div v-for="(day, index) in cells" :key="index" class="calendar-cell" :class="{ empty: !day, selected: day === selectedDay }">
           <button v-if="day" type="button" class="calendar-day" :aria-label="`${month}월 ${day}일, 일정 ${eventsOn(day).length}개`" :aria-pressed="day === selectedDay" @click="selectedDay = day">
             <span class="calendar-day-number">{{ day }}</span>
-            <span v-for="event in eventsOn(day).slice(0, 2)" :key="event.id" class="calendar-chip" :class="event.event_type">{{ event.notice_title }}</span>
+            <span v-for="event in eventsOn(day).slice(0, 2)" :key="event.id" class="calendar-chip" :class="event.event_type">{{ event.notice_title }} · {{ event.display_label }}</span>
             <span v-if="eventsOn(day).length > 2" class="calendar-more">+{{ eventsOn(day).length - 2 }}개 더</span>
           </button>
         </div>
@@ -98,7 +81,7 @@ function eventDateRange(event) {
         <h3>{{ month }}월 {{ selectedDay }}일 일정</h3>
         <p v-if="!selectedEvents.length" class="calendar-muted">이 날짜에 저장된 일정이 없습니다.</p>
         <article v-for="event in selectedEvents" :key="event.id" class="calendar-agenda-item">
-          <span class="calendar-type" :class="event.event_type">{{ labels[event.event_type] || '기타 일정' }}</span>
+          <span class="calendar-type" :class="event.event_type">{{ event.display_label }}</span>
           <div><strong>{{ event.notice_title }}</strong><p>{{ eventDateRange(event) }}<template v-if="event.location"> · {{ event.location }}</template></p><small>{{ event.date_text }}</small></div>
           <button type="button" @click="emit('open', event.notice_id)">공고 상세 보기</button>
         </article>

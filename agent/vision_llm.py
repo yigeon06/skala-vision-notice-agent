@@ -12,14 +12,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageOps
 
-try:
-    from langsmith import traceable
-except ImportError:  # pragma: no cover
-    def traceable(*args, **kwargs):
-        def _decorator(fn):
-            return fn
-
-        return _decorator
+from agent.tracing import record_trace_metadata, traceable
 
 
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
@@ -232,6 +225,11 @@ class OllamaVisionLLM:
         merged_text = merge_ocr_texts(segment_texts)
         if not merged_text:
             raise OCRError("모든 이미지 구간에서 빈 OCR 텍스트가 반환되었습니다.")
+        record_trace_metadata(
+            model=self.model, segment_count=len(segments),
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            attempts=sum(item["attempts"] for item in segment_usages),
+        )
         return merged_text, {
             "model": self.model,
             "prompt_tokens": prompt_tokens,
@@ -285,7 +283,6 @@ class OllamaVisionLLM:
         started = time.perf_counter()
         prompt_tokens = 0
         completion_tokens = 0
-        last_error: Exception | None = None
         attempts_used = 0
 
         for attempt in range(MAX_ATTEMPTS):
@@ -310,6 +307,11 @@ class OllamaVisionLLM:
                 text, repetition = truncate_repeated_tail(text)
                 if not text:
                     raise ValueError("반복 생성을 제거한 뒤 OCR 텍스트가 비었습니다.")
+                record_trace_metadata(
+                    model=self.model, prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens, attempts=attempts_used,
+                    elapsed_seconds=round(time.perf_counter() - started, 3),
+                )
                 return text, {
                     **segment_meta,
                     "prompt_tokens": prompt_tokens,
@@ -318,10 +320,10 @@ class OllamaVisionLLM:
                     "attempts": attempts_used,
                     **repetition,
                 }
-            except (httpx.HTTPError, ValueError) as exc:
-                last_error = exc
+            except (httpx.HTTPError, ValueError):
+                pass
 
         raise OCRError(
             f"OCR {segment_number}/{segment_count} 구간을 {MAX_ATTEMPTS}회 시도 후 "
-            f"완료하지 못했습니다: {last_error}"
-        ) from last_error
+            "완료하지 못했습니다."
+        ) from None

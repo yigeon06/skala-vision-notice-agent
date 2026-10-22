@@ -363,7 +363,7 @@ class NoticeRepository:
         return [dict(row) for row in rows]
 
     def list_calendar_events(self, month_start: str, next_month_start: str) -> dict:
-        """월간 달력에 걸치는 일정과 날짜 미확정 일정을 조회한다."""
+        """시작·종료일이 해당 월에 있는 일정과 날짜 미확정 일정을 조회한다."""
         effective_at = (
             "CASE WHEN e.event_type IN ('application_deadline', 'submission_deadline') "
             "AND e.end_at IS NOT NULL THEN e.end_at ELSE e.start_at END"
@@ -372,27 +372,32 @@ class NoticeRepository:
             rows = connection.execute(
                 f"""
                 SELECT e.id, e.notice_id, n.title AS notice_title,
+                       n.action_required_json,
                        n.status AS notice_status, e.event_type, e.date_text,
                        e.start_at, e.end_at, e.all_day, e.location,
                        e.evidence_text, e.status, {effective_at} AS effective_at
                 FROM notice_events AS e
                 JOIN notices AS n ON n.id = e.notice_id
                 WHERE {effective_at} IS NULL
-                   OR (
-                       e.event_type IN ('application_deadline', 'submission_deadline')
-                       AND substr({effective_at}, 1, 10) >= ?
-                       AND substr({effective_at}, 1, 10) < ?
-                   )
-                   OR (
-                       e.event_type NOT IN ('application_deadline', 'submission_deadline')
-                       AND substr(e.start_at, 1, 10) < ?
-                       AND substr(COALESCE(e.end_at, e.start_at), 1, 10) >= ?
-                   )
+                   OR (substr(e.start_at, 1, 10) >= ?
+                       AND substr(e.start_at, 1, 10) < ?)
+                   OR (substr(COALESCE(e.end_at, e.start_at), 1, 10) >= ?
+                       AND substr(COALESCE(e.end_at, e.start_at), 1, 10) < ?)
                 ORDER BY effective_at IS NULL, effective_at, e.id
                 """,
-                (month_start, next_month_start, next_month_start, month_start),
+                (
+                    month_start, next_month_start,
+                    month_start, next_month_start,
+                ),
             ).fetchall()
-        events = [{**dict(row), "all_day": bool(row["all_day"])} for row in rows]
+        events = [
+            {
+                **{key: row[key] for key in row.keys() if key != "action_required_json"},
+                "action_required": json.loads(row["action_required_json"]),
+                "all_day": bool(row["all_day"]),
+            }
+            for row in rows
+        ]
         return {
             "items": [row for row in events if row["effective_at"] is not None],
             "undated": [row for row in events if row["effective_at"] is None],

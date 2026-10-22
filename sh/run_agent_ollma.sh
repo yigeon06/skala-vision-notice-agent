@@ -14,6 +14,19 @@ if [ -f .env ]; then
   set +a
 fi
 
+TRACING_ENABLED="${LANGSMITH_TRACING:-${LANGCHAIN_TRACING_V2:-false}}"
+if [ "$TRACING_ENABLED" = "true" ]; then
+  LANGSMITH_KEY="${LANGSMITH_API_KEY:-${LANGCHAIN_API_KEY:-}}"
+  if [ -z "$LANGSMITH_KEY" ] || [ "$LANGSMITH_KEY" = "lsv2_pt_..." ]; then
+    echo "ERROR: LangSmith 추적을 켜려면 .env에 실제 API 키를 설정하세요."
+    exit 1
+  fi
+  export LANGSMITH_API_KEY="$LANGSMITH_KEY"
+  export LANGSMITH_TRACING=true LANGCHAIN_TRACING_V2=true
+  export LANGSMITH_HIDE_INPUTS=true LANGSMITH_HIDE_OUTPUTS=true
+  export LANGSMITH_PROJECT="${LANGSMITH_PROJECT:-${LANGCHAIN_PROJECT:-notice-schedule-agent}}"
+fi
+
 VISION_MODEL="${OLLAMA_VISION_MODEL:-qwen3-vl:4b-instruct}"
 EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-ollama}"
 EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-bge-m3}"
@@ -38,6 +51,7 @@ fi
 echo "공지·일정 API: http://127.0.0.1:8100"
 echo "Vision: $VISION_MODEL / num_ctx=${OLLAMA_VISION_NUM_CTX:-16384}"
 echo "Embedding: $EMBEDDING_PROVIDER / $EMBEDDING_MODEL"
+echo "LangSmith: $TRACING_ENABLED"
 echo "종료: Ctrl+C"
 
 exec .venv/bin/python3 server.py

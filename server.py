@@ -14,6 +14,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# LangGraph와 @traceable 모두 같은 안전한 추적 설정을 사용한다.
+_tracing_enabled = os.environ.get(
+    "LANGSMITH_TRACING", os.environ.get("LANGCHAIN_TRACING_V2", "false")
+).lower() == "true"
+if _tracing_enabled:
+    _langsmith_key = os.environ.get("LANGSMITH_API_KEY") or os.environ.get(
+        "LANGCHAIN_API_KEY", ""
+    )
+    if not _langsmith_key or _langsmith_key.startswith("lsv2_pt_..."):
+        raise RuntimeError("LangSmith 추적을 켜려면 실제 API 키가 필요합니다.")
+    os.environ["LANGSMITH_API_KEY"] = _langsmith_key
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGSMITH_HIDE_INPUTS"] = "true"
+    os.environ["LANGSMITH_HIDE_OUTPUTS"] = "true"
+    os.environ.setdefault(
+        "LANGSMITH_PROJECT", os.environ.get("LANGCHAIN_PROJECT", "notice-schedule-agent")
+    )
+    os.environ.setdefault(
+        "LANGSMITH_ENDPOINT",
+        os.environ.get("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"),
+    )
+
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -33,6 +56,7 @@ from agent.search import NoticeSearchError, OpenAINoticeSearchParser
 from agent.schemas import NoticeExtraction
 from agent.structured_llm import OpenAIStructuredLLM, StructuredOutputError
 from agent.vision_llm import OCRError, OllamaVisionLLM
+from agent.tracing import record_trace_metadata, traceable
 from notice.image_store import ImageStore
 from notice.repository import NoticeRepository
 from notice.service import extract_with_validation, validate_extraction
@@ -172,11 +196,12 @@ def _image_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+@traceable(run_type="chain", name="notice.extract")
 async def _extract_notice(image_id: str, reference_date: date | None):
     try:
         image_path = app.state.image_store.resolve(image_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="업로드 이미지를 찾을 수 없습니다.") from exc
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="업로드 이미지를 찾을 수 없습니다.") from None
 
     effective_date = reference_date or datetime.now(SEOUL).date()
     try:
@@ -184,10 +209,17 @@ async def _extract_notice(image_id: str, reference_date: date | None):
             app.state.notice_extractor, image_path, effective_date
         )
     except OCRError as exc:
-        raise HTTPException(status_code=502, detail=f"OCR 실패: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"OCR 실패: {exc}") from None
     except StructuredOutputError as exc:
-        raise HTTPException(status_code=502, detail=f"JSON 구조화 실패: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"JSON 구조화 실패: {exc}") from None
 
+    record_trace_metadata(
+        validation_status=validation.status,
+        event_count=len(normalized.events),
+        elapsed_seconds=usage.get("elapsed_seconds"),
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+    )
     return image_path, normalized, validation, usage
 
 
@@ -204,16 +236,18 @@ async def health():
 
 
 @app.post("/images")
+@traceable(run_type="chain", name="notice.upload_image")
 async def upload_image(file: UploadFile = File(...)):
     data = await file.read(10 * 1024 * 1024 + 1)
     try:
         stored = app.state.image_store.save(data)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     return {**stored, "original_filename": file.filename}
 
 
 @app.post("/notices/extract")
+@traceable(run_type="chain", name="notice.extract_api")
 async def extract_notice(req: ExtractNoticeRequest):
     _, extraction, validation, usage = await _extract_notice(
         req.image_id, req.reference_date
@@ -226,17 +260,19 @@ async def extract_notice(req: ExtractNoticeRequest):
 
 
 @app.post("/chat")
+@traceable(run_type="chain", name="notice.chat_api")
 async def chat(req: ChatRequest):
     try:
         content = await app.state.chat_llm.reply(
             [message.model_dump() for message in req.messages]
         )
     except ChatError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     return {"role": "assistant", "content": content}
 
 
 @app.post("/agent")
+@traceable(run_type="chain", name="notice.agent_api")
 async def run_agent(req: AgentRequest):
     try:
         result = await app.state.agent_graph.ainvoke(
@@ -248,7 +284,12 @@ async def run_agent(req: AgentRequest):
             }
         )
     except (PlanningError, NoticeSearchError, ChatError, EmbeddingError, RAGError) as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    record_trace_metadata(
+        route=result["route"],
+        search_mode=req.search_mode,
+        search_type=result.get("data", {}).get("search_type"),
+    )
     return {
         "route": result["route"],
         "route_reason": result["route_reason"],
@@ -258,11 +299,12 @@ async def run_agent(req: AgentRequest):
 
 
 @app.post("/notices/register")
+@traceable(run_type="chain", name="notice.register_api")
 async def register_notice(req: RegisterNoticeRequest):
     try:
         image_path = app.state.image_store.resolve(req.image_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="업로드 이미지를 찾을 수 없습니다.") from exc
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="업로드 이미지를 찾을 수 없습니다.") from None
 
     extraction = req.extraction
     validation = validate_extraction(extraction)
@@ -302,6 +344,13 @@ async def register_notice(req: RegisterNoticeRequest):
             "model": app.state.embedding_provider.model,
             "warning": str(exc),
         }
+    record_trace_metadata(
+        created=created,
+        validation_status=validation.status,
+        event_count=len(extraction.events),
+        embedding_status=embedding["status"],
+        chunk_count=embedding.get("chunk_count"),
+    )
     return {
         "notice_id": notice_id,
         "created": created,

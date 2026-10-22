@@ -10,6 +10,7 @@ from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from agent.schemas import EventType
+from agent.tracing import record_trace_metadata, traceable
 
 
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -64,6 +65,7 @@ class OpenAINoticeSearchParser:
         self.model = model
         self.client = client
 
+    @traceable(run_type="llm", name="notice.parse_search")
     async def parse(
         self,
         messages: list[dict[str, str]],
@@ -97,15 +99,23 @@ class OpenAINoticeSearchParser:
                 text_format=NoticeSearchFilters,
                 store=False,
             )
-        except (APIError, ValidationError) as exc:
+        except (APIError, ValidationError):
             raise NoticeSearchError(
                 "공지 검색 조건을 해석하지 못했습니다. 질문을 조금 더 구체적으로 입력해 주세요."
-            ) from exc
+            ) from None
         filters = response.output_parsed
         if response.status != "completed" or filters is None:
             raise NoticeSearchError(
                 "공지 검색 조건 해석이 완성되지 않았습니다. 다시 시도해 주세요."
             )
+        usage = getattr(response, "usage", None)
+        record_trace_metadata(
+            model=self.model, search_type=filters.search_type,
+            period=filters.period, status=filters.status,
+            prompt_tokens=getattr(usage, "input_tokens", None),
+            completion_tokens=getattr(usage, "output_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+        )
         return filters
 
 

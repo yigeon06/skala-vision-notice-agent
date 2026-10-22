@@ -11,6 +11,7 @@ import httpx
 from openai import APIError, AsyncOpenAI
 
 from agent.schemas import NoticeExtraction
+from agent.tracing import record_trace_metadata, traceable
 
 
 class EmbeddingError(RuntimeError):
@@ -49,6 +50,7 @@ class OllamaEmbeddingProvider:
         self.base_url = base_url.rstrip("/")
         self.timeout_sec = timeout_sec
 
+    @traceable(run_type="embedding", name="notice.embed_ollama")
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
@@ -61,13 +63,15 @@ class OllamaEmbeddingProvider:
                 response.raise_for_status()
                 body = response.json()
                 embeddings = body.get("embeddings") if isinstance(body, dict) else None
-        except (httpx.HTTPError, TypeError, ValueError) as exc:
+        except (httpx.HTTPError, TypeError, ValueError):
             raise EmbeddingError(
                 "Ollama 임베딩을 생성하지 못했습니다. 서버와 모델을 확인해 주세요."
-            ) from exc
+            ) from None
         if not isinstance(embeddings, list) or len(embeddings) != len(texts):
             raise EmbeddingError("Ollama 임베딩 응답 형식이 올바르지 않습니다.")
-        return _validate_vectors(embeddings)
+        vectors = _validate_vectors(embeddings)
+        record_trace_metadata(provider=self.provider, model=self.model, chunk_count=len(texts))
+        return vectors
 
 
 class OpenAIEmbeddingProvider:
@@ -77,6 +81,7 @@ class OpenAIEmbeddingProvider:
         self.model = model
         self.client = client
 
+    @traceable(run_type="embedding", name="notice.embed_openai")
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
@@ -86,12 +91,14 @@ class OpenAIEmbeddingProvider:
                 input=texts,
                 encoding_format="float",
             )
-        except APIError as exc:
-            raise EmbeddingError("OpenAI 임베딩을 생성하지 못했습니다.") from exc
+        except APIError:
+            raise EmbeddingError("OpenAI 임베딩을 생성하지 못했습니다.") from None
         ordered = sorted(response.data, key=lambda item: item.index)
         if len(ordered) != len(texts):
             raise EmbeddingError("OpenAI 임베딩 응답 개수가 일치하지 않습니다.")
-        return _validate_vectors([item.embedding for item in ordered])
+        vectors = _validate_vectors([item.embedding for item in ordered])
+        record_trace_metadata(provider=self.provider, model=self.model, chunk_count=len(texts))
+        return vectors
 
 
 def _validate_vectors(vectors: list[list[float]]) -> list[list[float]]:
@@ -102,8 +109,8 @@ def _validate_vectors(vectors: list[list[float]]) -> list[list[float]]:
         if any(len(vector) != dimensions for vector in vectors):
             raise EmbeddingError("임베딩 벡터 차원이 일치하지 않습니다.")
         return [[float(value) for value in vector] for vector in vectors]
-    except (TypeError, ValueError) as exc:
-        raise EmbeddingError("임베딩 벡터 형식이 올바르지 않습니다.") from exc
+    except (TypeError, ValueError):
+        raise EmbeddingError("임베딩 벡터 형식이 올바르지 않습니다.") from None
 
 
 def build_notice_chunks(

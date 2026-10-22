@@ -2,6 +2,8 @@
 
 from openai import APIError, AsyncOpenAI
 
+from agent.tracing import record_trace_metadata, traceable
+
 
 class ChatError(RuntimeError):
     """사용자에게 표시할 수 있는 일반 대화 오류."""
@@ -12,6 +14,7 @@ class OpenAIChatLLM:
         self.model = model
         self.client = client
 
+    @traceable(run_type="llm", name="notice.chat_answer")
     async def reply(self, messages: list[dict[str, str]]) -> str:
         try:
             response = await self.client.responses.create(
@@ -26,10 +29,17 @@ class OpenAIChatLLM:
                 input=messages,
                 store=False,
             )
-        except APIError as exc:
+        except APIError:
             # 외부 오류의 원문에는 요청 정보가 포함될 수 있어 반환하지 않는다.
-            raise ChatError("대화 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.") from exc
+            raise ChatError("대화 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.") from None
         text = response.output_text.strip()
         if response.status != "completed" or not text:
             raise ChatError("대화 응답이 완성되지 않았습니다. 다시 시도해 주세요.")
+        usage = getattr(response, "usage", None)
+        record_trace_metadata(
+            model=self.model,
+            prompt_tokens=getattr(usage, "input_tokens", None),
+            completion_tokens=getattr(usage, "output_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+        )
         return text
